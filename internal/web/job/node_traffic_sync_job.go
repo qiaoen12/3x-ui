@@ -140,7 +140,9 @@ func (j *NodeTrafficSyncJob) Run() {
 	}
 	if clientsDisabled {
 		if restartOnDisable, settingErr := j.settingService.GetRestartXrayOnClientDisable(); settingErr == nil && restartOnDisable {
-			if err := j.xrayService.RestartXray(true); err != nil {
+			// Remote-only expiry/quota changes do not alter the local core config.
+			// Keep the local force flag off, as in XrayTrafficJob.
+			if err := j.xrayService.RestartXray(false); err != nil {
 				logger.Warning("node traffic sync: restart xray after disabling clients failed:", err)
 				j.xrayService.SetToNeedRestart()
 			}
