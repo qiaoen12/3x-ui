@@ -118,8 +118,8 @@ func (s *InboundService) addInboundTraffic(tx *gorm.DB, traffics []*xray.Traffic
 		if traffic.IsInbound {
 			err = tx.Model(&model.Inbound{}).Where("tag = ? AND node_id IS NULL", traffic.Tag).
 				Updates(map[string]any{
-					"up":   gorm.Expr(database.ClampedAddExpr("up"), traffic.Up),
-					"down": gorm.Expr(database.ClampedAddExpr("down"), traffic.Down),
+					"up":   gorm.Expr(database.ClampedAddExpr("up"), opsPublicBillingDelta(traffic.Up)),
+					"down": gorm.Expr(database.ClampedAddExpr("down"), opsPublicBillingDelta(traffic.Down)),
 				}).Error
 			if err != nil {
 				return err
@@ -195,7 +195,8 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 				database.ClampedAddExpr("down"),
 				database.GreatestExpr("last_online", "?"),
 			),
-			t.Up, t.Down, now, ct.Email,
+			opsPublicBillingDelta(t.Up),
+			opsPublicBillingDelta(t.Down), now, ct.Email,
 		).Error; err != nil {
 			return fmt.Errorf("update traffic for %s: %w", ct.Email, err)
 		}

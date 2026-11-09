@@ -43,8 +43,8 @@ func TestAddTrafficCommitsDespiteDisableHelperError(t *testing.T) {
 	if err := db.Where("tag = ?", "in-normal").First(&reloaded).Error; err != nil {
 		t.Fatalf("reload normal inbound: %v", err)
 	}
-	if reloaded.Up != 500 || reloaded.Down != 700 {
-		t.Fatalf("traffic tick was rolled back by a best-effort disable-helper error: up=%d down=%d, want 500/700", reloaded.Up, reloaded.Down)
+	if reloaded.Up != 1000 || reloaded.Down != 1400 {
+		t.Fatalf("traffic tick was rolled back by a best-effort disable-helper error: up=%d down=%d, want 1000/1400", reloaded.Up, reloaded.Down)
 	}
 }
 

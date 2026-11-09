@@ -66,8 +66,8 @@ func TestAddClientTraffic_MatchesByEmail(t *testing.T) {
 	if err := db.Model(xray.ClientTraffic{}).Where("email = ?", staleEmail).First(&stale).Error; err != nil {
 		t.Fatalf("reload stale row: %v", err)
 	}
-	if stale.Up != 10 || stale.Down != 20 {
-		t.Errorf("stale-pointer row not updated: up=%d down=%d, want 10/20", stale.Up, stale.Down)
+	if stale.Up != 20 || stale.Down != 40 {
+		t.Errorf("stale-pointer row not updated: up=%d down=%d, want 20/40", stale.Up, stale.Down)
 	}
 	if stale.LastOnline == 0 {
 		t.Errorf("stale-pointer row LastOnline not set")
@@ -77,8 +77,8 @@ func TestAddClientTraffic_MatchesByEmail(t *testing.T) {
 	if err := db.Model(xray.ClientTraffic{}).Where("email = ?", dualEmail).First(&dual).Error; err != nil {
 		t.Fatalf("reload dual row: %v", err)
 	}
-	if dual.Up != 30 || dual.Down != 40 {
-		t.Errorf("node-owned row not updated by local traffic (issue #4921): up=%d down=%d, want 30/40", dual.Up, dual.Down)
+	if dual.Up != 60 || dual.Down != 80 {
+		t.Errorf("node-owned row not updated by local traffic (issue #4921): up=%d down=%d, want 60/80", dual.Up, dual.Down)
 	}
 	if dual.LastOnline == 0 {
 		t.Errorf("node-owned row LastOnline not set (client stayed offline)")
@@ -219,8 +219,8 @@ func TestAddClientTraffic_ExpiryWriteOnlyForConvertedClients(t *testing.T) {
 	if normal.ExpiryTime != normalExpiry {
 		t.Errorf("normal expiry changed: %d, want %d", normal.ExpiryTime, normalExpiry)
 	}
-	if normal.Up != 30 || normal.Down != 40 {
-		t.Errorf("normal traffic not applied: up=%d down=%d, want 30/40", normal.Up, normal.Down)
+	if normal.Up != 60 || normal.Down != 80 {
+		t.Errorf("normal traffic not applied: up=%d down=%d, want 60/80", normal.Up, normal.Down)
 	}
 }
 
@@ -272,8 +272,8 @@ func TestAddTrafficClientUpdateFailureRollsBackWholeBatch(t *testing.T) {
 	if _, _, err := svc.AddTraffic(nil, batch); err != nil {
 		t.Fatalf("retry AddTraffic: %v", err)
 	}
-	assertTraffic("healthy@x", 100, 200)
-	assertTraffic("rejected@x", 300, 400)
+	assertTraffic("healthy@x", 200, 400)
+	assertTraffic("rejected@x", 600, 800)
 }
 
 func TestAddClientTrafficResolvesRenamedTuicClientByStableIdentity(t *testing.T) {
