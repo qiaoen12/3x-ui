@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "panel_version": "3.10.2",
+  "upstream_commit": "608ef4e4010bf83e2e78328e08f77efc051ad4d7",
+  "patch_id": "ops-public-billing-2x-v3",
+  "multiplier": 2,
+  "scope": "all_local_clients_and_inbounds",
+  "outbound_statistics": "unchanged",
+  "historical_usage": "preserved",
+  "raw_xray_samples": "unchanged",
+  "tests": "TestOpsPublicBilling|TestNodeQuota|TestNodeStaleExpiry|TestNodeRenew|TestNodeCounterReset|TestCentralReset|TestRestartXrayRespectsManualStop|TestDisableInvalidClients|TestNodeSelected",
+  "node_disable_restart_policy": "only_if_local_config_changed"
+}

@@ -1,0 +1,309 @@
+diff --git a/internal/web/service/inbound_client_traffic_test.go b/internal/web/service/inbound_client_traffic_test.go
+index 2d86f85..a239ed2 100644
+--- a/internal/web/service/inbound_client_traffic_test.go
++++ b/internal/web/service/inbound_client_traffic_test.go
+@@ -66,8 +66,8 @@ func TestAddClientTraffic_MatchesByEmail(t *testing.T) {
+ 	if err := db.Model(xray.ClientTraffic{}).Where("email = ?", staleEmail).First(&stale).Error; err != nil {
+ 		t.Fatalf("reload stale row: %v", err)
+ 	}
+-	if stale.Up != 10 || stale.Down != 20 {
+-		t.Errorf("stale-pointer row not updated: up=%d down=%d, want 10/20", stale.Up, stale.Down)
++	if stale.Up != 20 || stale.Down != 40 {
++		t.Errorf("stale-pointer row not updated: up=%d down=%d, want 20/40", stale.Up, stale.Down)
+ 	}
+ 	if stale.LastOnline == 0 {
+ 		t.Errorf("stale-pointer row LastOnline not set")
+@@ -77,8 +77,8 @@ func TestAddClientTraffic_MatchesByEmail(t *testing.T) {
+ 	if err := db.Model(xray.ClientTraffic{}).Where("email = ?", dualEmail).First(&dual).Error; err != nil {
+ 		t.Fatalf("reload dual row: %v", err)
+ 	}
+-	if dual.Up != 30 || dual.Down != 40 {
+-		t.Errorf("node-owned row not updated by local traffic (issue #4921): up=%d down=%d, want 30/40", dual.Up, dual.Down)
++	if dual.Up != 60 || dual.Down != 80 {
++		t.Errorf("node-owned row not updated by local traffic (issue #4921): up=%d down=%d, want 60/80", dual.Up, dual.Down)
+ 	}
+ 	if dual.LastOnline == 0 {
+ 		t.Errorf("node-owned row LastOnline not set (client stayed offline)")
+@@ -219,8 +219,8 @@ func TestAddClientTraffic_ExpiryWriteOnlyForConvertedClients(t *testing.T) {
+ 	if normal.ExpiryTime != normalExpiry {
+ 		t.Errorf("normal expiry changed: %d, want %d", normal.ExpiryTime, normalExpiry)
+ 	}
+-	if normal.Up != 30 || normal.Down != 40 {
+-		t.Errorf("normal traffic not applied: up=%d down=%d, want 30/40", normal.Up, normal.Down)
++	if normal.Up != 60 || normal.Down != 80 {
++		t.Errorf("normal traffic not applied: up=%d down=%d, want 60/80", normal.Up, normal.Down)
+ 	}
+ }
+ 
+@@ -272,8 +272,8 @@ func TestAddTrafficClientUpdateFailureRollsBackWholeBatch(t *testing.T) {
+ 	if _, _, err := svc.AddTraffic(nil, batch); err != nil {
+ 		t.Fatalf("retry AddTraffic: %v", err)
+ 	}
+-	assertTraffic("healthy@x", 100, 200)
+-	assertTraffic("rejected@x", 300, 400)
++	assertTraffic("healthy@x", 200, 400)
++	assertTraffic("rejected@x", 600, 800)
+ }
+ 
+ func TestAddClientTrafficResolvesRenamedTuicClientByStableIdentity(t *testing.T) {
+diff --git a/internal/web/service/inbound_traffic.go b/internal/web/service/inbound_traffic.go
+index 7f4acb7..4c20f56 100644
+--- a/internal/web/service/inbound_traffic.go
++++ b/internal/web/service/inbound_traffic.go
+@@ -118,8 +118,8 @@ func (s *InboundService) addInboundTraffic(tx *gorm.DB, traffics []*xray.Traffic
+ 		if traffic.IsInbound {
+ 			err = tx.Model(&model.Inbound{}).Where("tag = ? AND node_id IS NULL", traffic.Tag).
+ 				Updates(map[string]any{
+-					"up":   gorm.Expr(database.ClampedAddExpr("up"), traffic.Up),
+-					"down": gorm.Expr(database.ClampedAddExpr("down"), traffic.Down),
++					"up":   gorm.Expr(database.ClampedAddExpr("up"), opsPublicBillingDelta(traffic.Up)),
++					"down": gorm.Expr(database.ClampedAddExpr("down"), opsPublicBillingDelta(traffic.Down)),
+ 				}).Error
+ 			if err != nil {
+ 				return err
+@@ -195,7 +195,8 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
+ 				database.ClampedAddExpr("down"),
+ 				database.GreatestExpr("last_online", "?"),
+ 			),
+-			t.Up, t.Down, now, ct.Email,
++			opsPublicBillingDelta(t.Up),
++			opsPublicBillingDelta(t.Down), now, ct.Email,
+ 		).Error; err != nil {
+ 			return fmt.Errorf("update traffic for %s: %w", ct.Email, err)
+ 		}
+diff --git a/internal/web/service/ops_public_billing.go b/internal/web/service/ops_public_billing.go
+new file mode 100644
+index 0000000..cfbb2dd
+--- /dev/null
++++ b/internal/web/service/ops_public_billing.go
+@@ -0,0 +1,15 @@
++package service
++
++import "github.com/mhsanaei/3x-ui/v3/internal/database"
++
++// Bill every local client and inbound at 2x for new deltas only. Keep historical
++// counters and raw Xray samples intact; outbound statistics retain native units.
++func opsPublicBillingDelta(value int64) int64 {
++	if value <= 0 {
++		return value
++	}
++	if value > database.TrafficMax/2 {
++		return database.TrafficMax
++	}
++	return value * 2
++}
+diff --git a/internal/web/service/ops_public_billing_test.go b/internal/web/service/ops_public_billing_test.go
+new file mode 100644
+index 0000000..5d13c35
+--- /dev/null
++++ b/internal/web/service/ops_public_billing_test.go
+@@ -0,0 +1,194 @@
++package service
++
++import (
++	"testing"
++	"time"
++
++	"github.com/mhsanaei/3x-ui/v3/internal/database"
++	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
++	"github.com/mhsanaei/3x-ui/v3/internal/web/service/outbound"
++	"github.com/mhsanaei/3x-ui/v3/internal/xray"
++)
++
++func TestOpsPublicBillingKeepsHistoryAndScalesEveryNewClientDelta(t *testing.T) {
++	setupBulkDB(t)
++	db := database.GetDB()
++	expiry := time.Now().Add(90 * 24 * time.Hour).UnixMilli()
++	for _, row := range []model.ClientRecord{
++		{Email: "legacy-public", Comment: "ops-public-account:550220377:250GiB:1month", TotalGB: 1000, ExpiryTime: expiry, Enable: true, TrafficReset: "monthly", TrafficResetDay: 26},
++		{Email: "new-public", Comment: "ops-public-account:new", TotalGB: 1000, ExpiryTime: expiry, Enable: true},
++		{Email: "personal", Comment: "my-device", TotalGB: 1000, ExpiryTime: expiry, Enable: true},
++	} {
++		if err := db.Create(&row).Error; err != nil {
++			t.Fatal(err)
++		}
++		mkTraffic(t, 999, row.Email, 100, 200, row.TotalGB, expiry, true)
++	}
++	samples := []*xray.ClientTraffic{
++		{Email: "legacy-public", Up: 10, Down: 20},
++		{Email: "new-public", Up: 10, Down: 20},
++		{Email: "personal", Up: 10, Down: 20},
++	}
++	service := &InboundService{}
++	for tick := int64(1); tick <= 2; tick++ {
++		if err := service.addClientTraffic(db, samples); err != nil {
++			t.Fatal(err)
++		}
++		for _, email := range []string{"legacy-public", "new-public", "personal"} {
++			multiplier := int64(2)
++			row := trafficOf(t, email)
++			if row.Up != 100+tick*10*multiplier || row.Down != 200+tick*20*multiplier {
++				t.Fatalf("%s tick %d: usage %d/%d", email, tick, row.Up, row.Down)
++			}
++			if row.Total != 1000 || row.ExpiryTime != expiry {
++				t.Fatal("billing changed the quota or expiration")
++			}
++		}
++		for _, sample := range samples {
++			if sample.Up != 10 || sample.Down != 20 {
++				t.Fatal("raw samples were mutated or multiplied a second time")
++			}
++		}
++	}
++	var original model.ClientRecord
++	if err := db.Where("email = ?", "legacy-public").First(&original).Error; err != nil {
++		t.Fatal(err)
++	}
++	if original.TrafficReset != "monthly" || original.TrafficResetDay != 26 || original.ExpiryTime != expiry {
++		t.Fatal("billing changed monthly reset or expiration")
++	}
++	if _, err := (&ClientService{}).ResetAllTraffics(); err != nil {
++		t.Fatal(err)
++	}
++	if err := service.addClientTraffic(db, samples); err != nil {
++		t.Fatal(err)
++	}
++	for _, email := range []string{"legacy-public", "new-public", "personal"} {
++		row := trafficOf(t, email)
++		if row.Up != 20 || row.Down != 40 {
++			t.Fatalf("%s new cycle: %d/%d", email, row.Up, row.Down)
++		}
++	}
++}
++
++func TestOpsPublicBillingReachesNativeQuotaAtHalfRawUsage(t *testing.T) {
++	setupBulkDB(t)
++	client := model.Client{Email: "public-quota", ID: "11111111-1111-1111-1111-111111111111", Enable: true, TotalGB: 100, Comment: "ops-public-account:quota"}
++	inbound := mkInbound(t, 46390, model.VLESS, clientsSettings(t, []model.Client{client}))
++	if err := (&ClientService{}).SyncInbound(nil, inbound.Id, []model.Client{client}); err != nil {
++		t.Fatal(err)
++	}
++	mkTraffic(t, inbound.Id, client.Email, 0, 0, 100, 0, true)
++	service := &InboundService{}
++	if _, _, err := service.AddTraffic(nil, []*xray.ClientTraffic{{Email: client.Email, Down: 49}}); err != nil {
++		t.Fatal(err)
++	}
++	if row := trafficOf(t, client.Email); row.Down != 98 || !row.Enable {
++		t.Fatalf("client stopped early or usage is wrong: %+v", row)
++	}
++	if _, _, err := service.AddTraffic(nil, []*xray.ClientTraffic{{Email: client.Email, Down: 1}}); err != nil {
++		t.Fatal(err)
++	}
++	if row := trafficOf(t, client.Email); row.Down != 100 || row.Enable {
++		t.Fatalf("native quota did not stop the client at billed 100: %+v", row)
++	}
++}
++
++func TestOpsPublicBillingDeltaSaturates(t *testing.T) {
++	if got := opsPublicBillingDelta(database.TrafficMax); got != database.TrafficMax {
++		t.Fatalf("overflow: %d", got)
++	}
++	if got := opsPublicBillingDelta(17); got != 34 {
++		t.Fatalf("unlabelled traffic was not doubled: %d", got)
++	}
++}
++
++func TestOpsPublicBillingInboundHistoryRawSamplesAndOutbound(t *testing.T) {
++	setupBulkDB(t)
++	db := database.GetDB()
++	ib := mkInbound(t, 46391, model.VLESS, clientsSettings(t, nil))
++	if err := db.Model(ib).Updates(map[string]any{"up": 100, "down": 200}).Error; err != nil {
++		t.Fatal(err)
++	}
++	samples := []*xray.Traffic{{Tag: ib.Tag, IsInbound: true, Up: 10, Down: 20}, {Tag: ib.Tag, IsOutbound: true, Up: 500, Down: 700}}
++	for tick := int64(1); tick <= 2; tick++ {
++		if err := (&InboundService{}).addInboundTraffic(db, samples); err != nil {
++			t.Fatal(err)
++		}
++		var got model.Inbound
++		if err := db.First(&got, ib.Id).Error; err != nil {
++			t.Fatal(err)
++		}
++		if got.Up != 100+tick*20 || got.Down != 200+tick*40 {
++			t.Fatalf("inbound: %d/%d", got.Up, got.Down)
++		}
++		if err, _ := (&outbound.OutboundService{}).AddTraffic(samples, nil); err != nil {
++			t.Fatal(err)
++		}
++		var out model.OutboundTraffics
++		if err := db.Where("tag = ?", ib.Tag).First(&out).Error; err != nil {
++			t.Fatal(err)
++		}
++		if out.Up != tick*500 || out.Down != tick*700 {
++			t.Fatalf("outbound was scaled: %+v", out)
++		}
++		if samples[0].Up != 10 || samples[0].Down != 20 || samples[1].Up != 500 || samples[1].Down != 700 {
++			t.Fatal("raw/outbound samples mutated")
++		}
++	}
++	if err := db.Model(ib).Updates(map[string]any{"up": database.TrafficMax - 5, "down": database.TrafficMax - 5}).Error; err != nil {
++		t.Fatal(err)
++	}
++	if err := (&InboundService{}).addInboundTraffic(db, samples); err != nil {
++		t.Fatal(err)
++	}
++	var got model.Inbound
++	if err := db.First(&got, ib.Id).Error; err != nil {
++		t.Fatal(err)
++	}
++	if got.Up != database.TrafficMax || got.Down != database.TrafficMax {
++		t.Fatal("inbound did not saturate")
++	}
++}
++
++func TestOpsPublicBillingInboundQuotaAtHalfRawUsage(t *testing.T) {
++	setupBulkDB(t)
++	db := database.GetDB()
++	ib := mkInbound(t, 46392, model.VLESS, clientsSettings(t, nil))
++	if err := db.Model(ib).Update("total", 100).Error; err != nil {
++		t.Fatal(err)
++	}
++	svc := &InboundService{}
++	for _, n := range []int64{49, 1} {
++		sample := &xray.Traffic{Tag: ib.Tag, IsInbound: true, Down: n}
++		if _, _, err := svc.AddTraffic([]*xray.Traffic{sample}, nil); err != nil {
++			t.Fatal(err)
++		}
++		var got model.Inbound
++		if err := db.First(&got, ib.Id).Error; err != nil {
++			t.Fatal(err)
++		}
++		if n == 49 && (got.Down != 98 || !got.Enable) {
++			t.Fatalf("early disable: %+v", got)
++		}
++		if n == 1 && (got.Down != 100 || got.Enable) {
++			t.Fatalf("quota not enforced: %+v", got)
++		}
++		if sample.Down != n {
++			t.Fatal("raw sample mutated")
++		}
++	}
++}
++
++func TestOpsPublicBillingClientCounterSaturates(t *testing.T) {
++	setupBulkDB(t)
++	db := database.GetDB()
++	mkTraffic(t, 999, "unlabelled", database.TrafficMax-5, database.TrafficMax-5, 0, 0, true)
++	if err := (&InboundService{}).addClientTraffic(db, []*xray.ClientTraffic{{Email: "unlabelled", Up: 10, Down: database.TrafficMax}}); err != nil {
++		t.Fatal(err)
++	}
++	got := trafficOf(t, "unlabelled")
++	if got.Up != database.TrafficMax || got.Down != database.TrafficMax {
++		t.Fatal("client did not saturate")
++	}
++}
+diff --git a/internal/web/service/traffic_commit_test.go b/internal/web/service/traffic_commit_test.go
+index 0a9454d..3326462 100644
+--- a/internal/web/service/traffic_commit_test.go
++++ b/internal/web/service/traffic_commit_test.go
+@@ -43,8 +43,8 @@ func TestAddTrafficCommitsDespiteDisableHelperError(t *testing.T) {
+ 	if err := db.Where("tag = ?", "in-normal").First(&reloaded).Error; err != nil {
+ 		t.Fatalf("reload normal inbound: %v", err)
+ 	}
+-	if reloaded.Up != 500 || reloaded.Down != 700 {
+-		t.Fatalf("traffic tick was rolled back by a best-effort disable-helper error: up=%d down=%d, want 500/700", reloaded.Up, reloaded.Down)
++	if reloaded.Up != 1000 || reloaded.Down != 1400 {
++		t.Fatalf("traffic tick was rolled back by a best-effort disable-helper error: up=%d down=%d, want 1000/1400", reloaded.Up, reloaded.Down)
+ 	}
+ }
+ 

@@ -1,0 +1,87 @@
+# The only workflow on this branch: upstream's workflows were removed so that a tag here never publishes upstream's
+# multi-platform release or Docker image. Builds the linux/amd64 panel that qiaoen12/ops-private installs
+# (ansible/roles/xui): upstream commit + ops/patches, the same static musl build as upstream's release.yml.
+name: ops release (linux amd64)
+
+on:
+  push:
+    tags: ['v*-ops.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      UPSTREAM: 608ef4e4010bf83e2e78328e08f77efc051ad4d7
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 20
+
+      - name: Require the tree to be the upstream commit plus exactly ops/patches
+        run: |
+          set -eu
+          cp -r ops/patches /tmp/ops-patches
+          git config user.name ops-check && git config user.email ops-check@localhost
+          git switch -q --detach "$UPSTREAM"
+          for p in /tmp/ops-patches/*.patch; do git apply --index "$p"; done
+          git commit -q -m check
+          git diff --quiet HEAD "$GITHUB_SHA" -- . ':!ops' ':!.github'
+          git switch -q --detach "$GITHUB_SHA"
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # internal/web embeds internal/web/dist, which only exists after the frontend build.
+      - name: Build the frontend bundle
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Run the ops patch tests
+        run: go test -p 4 ./internal/web/service ./internal/web/job -run "$(jq -r .tests ops/manifest.base.json)" -count=1
+
+      - name: Build the static panel (Bootlin musl, as upstream release.yml)
+        run: |
+          set -eu
+          base=https://toolchains.bootlin.com/downloads/releases/toolchains/x86-64/tarballs/
+          tarball=$(curl -fsSL --retry 5 "$base" | grep -oE 'x86-64--musl--stable-[^"]+\.tar\.xz' | sort -r | head -n1)
+          curl -fsSL --retry 5 -o "/tmp/$tarball" "$base$tarball"
+          tar -C /tmp -xf "/tmp/$tarball"
+          dir=$(find /tmp -maxdepth 1 -type d -name 'x86-64--musl--stable-*' | head -n1)
+          export PATH="$dir/bin:$PATH" CC=$(find "$dir/bin" -name '*-gcc.br_real' -type f -executable | head -n1)
+          mkdir -p dist
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=true \
+            -ldflags "-w -s -linkmode external -extldflags '-static'" -o dist/x-ui-linux-amd64 .
+          file dist/x-ui-linux-amd64 | grep -q 'statically linked'
+          echo "TOOLCHAIN=${tarball%.tar.xz}" >> "$GITHUB_ENV"
+
+      - name: Write the manifest and checksums
+        run: |
+          set -eu
+          jq --arg bin "$(sha256sum dist/x-ui-linux-amd64 | cut -d' ' -f1)" \
+             --arg p1 "$(sha256sum ops/patches/0001-public-billing-2x.patch | cut -d' ' -f1)" \
+             --arg p2 "$(sha256sum ops/patches/0002-node-disable-local-restart.patch | cut -d' ' -f1)" \
+             --arg go "$(go env GOVERSION)" --arg tc "$TOOLCHAIN" --arg tag "$GITHUB_REF_NAME" --arg src "$GITHUB_SHA" \
+             --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+             --arg at "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" \
+             '. + {binary_sha256: $bin, patch_sha256: $p1, node_isolation_patch_sha256: $p2, go_version: $go,
+                   toolchain: $tc, release_tag: $tag, source_commit: $src, build_run: $run, built_at_utc: $at}' \
+             ops/manifest.base.json > dist/manifest.json
+          cd dist && sha256sum x-ui-linux-amd64 manifest.json > SHA256SUMS && cat SHA256SUMS manifest.json
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/x-ui-linux-amd64 dist/manifest.json dist/SHA256SUMS \
+            --title "$GITHUB_REF_NAME" --verify-tag \
+            --notes "3x-ui v3.10.2 ($UPSTREAM) with ops/patches: 2x public billing, node-isolation restart fix. linux/amd64 static. Built by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
