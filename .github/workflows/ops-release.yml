@@ -46,8 +46,12 @@ jobs:
         working-directory: frontend
         run: npm ci && npm run build
 
+      - name: Check the managed-update frontend
+        working-directory: frontend
+        run: npm test -- --project components $(jq -r '.frontend_tests[]' ../ops/manifest.base.json)
+
       - name: Run the ops patch tests
-        run: go test -p 4 ./internal/web/service ./internal/web/job -run "$(jq -r .tests ops/manifest.base.json)" -count=1
+        run: go test -p 4 $(jq -r '.test_packages[]' ops/manifest.base.json) -run "$(jq -r .tests ops/manifest.base.json)" -count=1
 
       - name: Build the static panel (Bootlin musl, as upstream release.yml)
         run: |
@@ -70,10 +74,11 @@ jobs:
           jq --arg bin "$(sha256sum dist/x-ui-linux-amd64 | cut -d' ' -f1)" \
              --arg p1 "$(sha256sum ops/patches/0001-public-billing-2x.patch | cut -d' ' -f1)" \
              --arg p2 "$(sha256sum ops/patches/0002-node-disable-local-restart.patch | cut -d' ' -f1)" \
+             --arg p3 "$(sha256sum ops/patches/0003-managed-updates-only.patch | cut -d' ' -f1)" \
              --arg go "$(go env GOVERSION)" --arg tc "$TOOLCHAIN" --arg tag "$GITHUB_REF_NAME" --arg src "$GITHUB_SHA" \
              --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
              --arg at "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" \
-             '. + {binary_sha256: $bin, patch_sha256: $p1, node_isolation_patch_sha256: $p2, go_version: $go,
+             '. + {binary_sha256: $bin, patch_sha256: $p1, node_isolation_patch_sha256: $p2, managed_updates_patch_sha256: $p3, go_version: $go,
                    toolchain: $tc, release_tag: $tag, source_commit: $src, build_run: $run, built_at_utc: $at}' \
              ops/manifest.base.json > dist/manifest.json
           cd dist && sha256sum x-ui-linux-amd64 manifest.json > SHA256SUMS && cat SHA256SUMS manifest.json
@@ -84,4 +89,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" dist/x-ui-linux-amd64 dist/manifest.json dist/SHA256SUMS \
             --title "$GITHUB_REF_NAME" --verify-tag \
-            --notes "3x-ui v3.10.2 ($UPSTREAM) with ops/patches: 2x public billing, node-isolation restart fix. linux/amd64 static. Built by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            --notes "3x-ui v3.10.2 ($UPSTREAM) with ops/patches: 2x public billing, node-isolation restart fix, built-in updates disabled (managed operations only). linux/amd64 static. Built by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

@@ -1,0 +1,2131 @@
+diff --git a/frontend/src/pages/index/GeodataSection.tsx b/frontend/src/pages/index/GeodataSection.tsx
+index cfe2237d..73a843dd 100644
+--- a/frontend/src/pages/index/GeodataSection.tsx
++++ b/frontend/src/pages/index/GeodataSection.tsx
+@@ -1,16 +1,4 @@
+-import { useCallback, useEffect, useRef, useState } from 'react';
+-import { useTranslation } from 'react-i18next';
+-import { Alert, Button, Form, Input, Modal, Select, Space, Spin, Typography, message } from 'antd';
+-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+-
+-import { XrayConfigPayloadSchema } from '@/schemas/xray';
+-import { isOutboundProtocol } from '@/schemas/primitives';
+-import { HttpUtil } from '@/utils';
+-
+-interface GeodataAssetRow {
+-  url: string;
+-  file: string;
+-}
++import ManagedUpdatesNotice from './ManagedUpdatesNotice';
+ 
+ interface GeodataSectionProps {
+   active: boolean;
+@@ -18,227 +6,6 @@ interface GeodataSectionProps {
+   onClose: () => void;
+ }
+ 
+-const DEFAULT_CRON = '0 4 * * *';
+-// Xray resolves `file` inside its asset directory; plain file names only.
+-const FILE_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+-
+-function fileNameFromUrl(url: string): string {
+-  try {
+-    const seg = new URL(url).pathname.split('/').filter(Boolean).pop() || '';
+-    return FILE_NAME_PATTERN.test(seg) ? seg : '';
+-  } catch {
+-    return '';
+-  }
+-}
+-
+-export default function GeodataSection({ active, onBusy, onClose }: GeodataSectionProps) {
+-  const { t } = useTranslation();
+-  const [modal, modalContextHolder] = Modal.useModal();
+-  const [messageApi, messageContextHolder] = message.useMessage();
+-  const [loading, setLoading] = useState(false);
+-  const [cron, setCron] = useState(DEFAULT_CRON);
+-  const [outbound, setOutbound] = useState<string | undefined>(undefined);
+-  const [rows, setRows] = useState<GeodataAssetRow[]>([]);
+-  const [standardSources, setStandardSources] = useState<GeodataAssetRow[]>([]);
+-  const [outboundTags, setOutboundTags] = useState<string[]>([]);
+-  const [template, setTemplate] = useState<Record<string, unknown> | null>(null);
+-  const outboundTestUrlRef = useRef('');
+-
+-  const load = useCallback(async () => {
+-    try {
+-      const msg = await HttpUtil.post('/panel/api/xray/', undefined, { silent: true });
+-      if (!msg?.success || typeof msg.obj !== 'string') return;
+-      const parsed = XrayConfigPayloadSchema.safeParse(JSON.parse(msg.obj));
+-      if (!parsed.success) return;
+-      const payload = parsed.data;
+-      const next = payload.xraySetting as Record<string, unknown>;
+-      setTemplate(next);
+-      outboundTestUrlRef.current =
+-        typeof payload.outboundTestUrl === 'string' ? payload.outboundTestUrl : '';
+-
+-      const geodata = (next.geodata || {}) as Record<string, unknown>;
+-      const assets = Array.isArray(geodata.assets) ? geodata.assets : [];
+-      setRows(
+-        assets
+-          .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+-          .map((a) => ({ url: String(a.url ?? ''), file: String(a.file ?? '') })),
+-      );
+-      setCron(typeof geodata.cron === 'string' && geodata.cron ? geodata.cron : DEFAULT_CRON);
+-      setOutbound(
+-        typeof geodata.outbound === 'string' && geodata.outbound ? geodata.outbound : undefined,
+-      );
+-      setStandardSources(payload.geodataSources ?? []);
+-
+-      // Download outbound candidates: template outbounds + subscription outbounds.
+-      // Skip blackhole outbounds — routing a download through one just drops it.
+-      const tags = new Set<string>();
+-      const outbounds = Array.isArray(next.outbounds) ? next.outbounds : [];
+-      for (const o of outbounds) {
+-        if (!o || typeof o !== 'object') continue;
+-        const rec = o as Record<string, unknown>;
+-        if (isOutboundProtocol(rec, 'blackhole')) continue;
+-        const tag = rec.tag;
+-        if (typeof tag === 'string' && tag) tags.add(tag);
+-      }
+-      const subTags = Array.isArray(payload.subscriptionOutboundTags)
+-        ? payload.subscriptionOutboundTags
+-        : [];
+-      for (const tag of subTags) {
+-        if (typeof tag === 'string' && tag) tags.add(tag);
+-      }
+-      setOutboundTags([...tags]);
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, []);
+-
+-  const [wasActive, setWasActive] = useState(false);
+-  if (active !== wasActive) {
+-    setWasActive(active);
+-    if (active) setLoading(true);
+-  }
+-
+-  useEffect(() => {
+-    if (active) void load();
+-  }, [active, load]);
+-
+-  function setRow(index: number, patch: Partial<GeodataAssetRow>) {
+-    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+-  }
+-
+-  function onUrlBlur(index: number) {
+-    setRows((prev) =>
+-      prev.map((r, i) => (i === index && !r.file ? { ...r, file: fileNameFromUrl(r.url) } : r)),
+-    );
+-  }
+-
+-  function addStandardSources() {
+-    setRows((prev) => {
+-      const files = new Set(prev.map((row) => row.file));
+-      return [...prev, ...standardSources.filter((source) => !files.has(source.file))];
+-    });
+-  }
+-
+-  function save() {
+-    if (!template) return;
+-    const assets = rows
+-      .map((r) => ({ url: r.url.trim(), file: r.file.trim() }))
+-      .filter((r) => r.url || r.file);
+-    for (const a of assets) {
+-      // Xray's geodata downloader accepts HTTPS URLs only.
+-      if (!/^https:\/\/\S+$/i.test(a.url)) {
+-        messageApi.error(t('pages.index.geodataInvalidUrl'));
+-        return;
+-      }
+-      if (!FILE_NAME_PATTERN.test(a.file)) {
+-        messageApi.error(t('pages.index.geodataInvalidFile'));
+-        return;
+-      }
+-    }
+-    const cronValue = cron.trim();
+-    if (assets.length > 0 && cronValue && cronValue.split(/\s+/).length !== 5) {
+-      messageApi.error(t('pages.index.geodataInvalidCron'));
+-      return;
+-    }
+-
+-    modal.confirm({
+-      title: t('pages.index.geodataConfirmTitle'),
+-      content: t('pages.index.geodataConfirmContent'),
+-      okText: t('confirm'),
+-      cancelText: t('cancel'),
+-      onOk: async () => {
+-        const next: Record<string, unknown> = { ...template };
+-        if (assets.length === 0) {
+-          delete next.geodata;
+-        } else {
+-          const geodata: Record<string, unknown> = { assets };
+-          if (cronValue) geodata.cron = cronValue;
+-          if (outbound) geodata.outbound = outbound;
+-          next.geodata = geodata;
+-        }
+-        onClose();
+-        onBusy({ busy: true, tip: t('pages.index.dontRefresh') });
+-        try {
+-          const msg = await HttpUtil.post('/panel/api/xray/update', {
+-            xraySetting: JSON.stringify(next, null, 2),
+-            outboundTestUrl: outboundTestUrlRef.current,
+-          });
+-          if (msg?.success) {
+-            await HttpUtil.post('/panel/api/server/restartXrayService');
+-          }
+-        } finally {
+-          onBusy({ busy: false });
+-        }
+-      },
+-    });
+-  }
+-
+-  return (
+-    <div>
+-      {modalContextHolder}
+-      {messageContextHolder}
+-      <Spin spinning={loading}>
+-        <Alert type="info" className="mb-12" title={t('pages.index.geodataHint')} showIcon />
+-        <Form layout="vertical">
+-          <Form.Item label={t('pages.index.geodataCron')} style={{ marginBottom: 8 }}>
+-            <Input
+-              value={cron}
+-              placeholder={DEFAULT_CRON}
+-              onChange={(e) => setCron(e.target.value)}
+-            />
+-          </Form.Item>
+-          <Form.Item label={t('pages.index.geodataOutbound')} style={{ marginBottom: 8 }}>
+-            <Select
+-              style={{ width: '100%' }}
+-              allowClear
+-              value={outbound}
+-              onChange={(v) => setOutbound(v)}
+-              options={outboundTags.map((tag) => ({ label: tag, value: tag }))}
+-            />
+-          </Form.Item>
+-        </Form>
+-        <Space orientation="vertical" style={{ width: '100%' }} size={8}>
+-          {rows.length === 0 && (
+-            <Typography.Text type="secondary">{t('pages.index.geodataEmpty')}</Typography.Text>
+-          )}
+-          {rows.map((row, i) => (
+-            <Space.Compact key={i} style={{ width: '100%' }}>
+-              <Input
+-                style={{ width: '60%' }}
+-                placeholder="https://example.com/geosite_custom.dat"
+-                value={row.url}
+-                onChange={(e) => setRow(i, { url: e.target.value })}
+-                onBlur={() => onUrlBlur(i)}
+-              />
+-              <Input
+-                style={{ width: '40%' }}
+-                placeholder={t('pages.index.geodataFile')}
+-                value={row.file}
+-                onChange={(e) => setRow(i, { file: e.target.value })}
+-              />
+-              <Button
+-                aria-label={t('delete')}
+-                icon={<DeleteOutlined />}
+-                onClick={() => setRows((p) => p.filter((_, j) => j !== i))}
+-              />
+-            </Space.Compact>
+-          ))}
+-          <div className="actions-row">
+-            <Button
+-              icon={<PlusOutlined />}
+-              onClick={() => setRows((p) => [...p, { url: '', file: '' }])}
+-            >
+-              {t('pages.index.geodataAddFile')}
+-            </Button>
+-            <Button onClick={addStandardSources} disabled={standardSources.length === 0}>
+-              {t('pages.index.geodataUseStandardSources')}
+-            </Button>
+-            <Button type="primary" onClick={save} disabled={loading || !template}>
+-              {t('pages.index.geodataSaveRestart')}
+-            </Button>
+-          </div>
+-        </Space>
+-      </Spin>
+-    </div>
+-  );
++export default function GeodataSection(_props: GeodataSectionProps) {
++  return <ManagedUpdatesNotice />;
+ }
+diff --git a/frontend/src/pages/index/ManagedUpdatesNotice.tsx b/frontend/src/pages/index/ManagedUpdatesNotice.tsx
+new file mode 100644
+index 00000000..424893f9
+--- /dev/null
++++ b/frontend/src/pages/index/ManagedUpdatesNotice.tsx
+@@ -0,0 +1,9 @@
++import { Alert } from 'antd';
++import { useTranslation } from 'react-i18next';
++
++export default function ManagedUpdatesNotice() {
++  const { t } = useTranslation();
++  return (
++    <Alert type="info" showIcon className="mb-12" title={t('pages.index.managedUpdatesNotice')} />
++  );
++}
+diff --git a/frontend/src/pages/index/OverviewActionBar.tsx b/frontend/src/pages/index/OverviewActionBar.tsx
+index 7600dc4a..8aaf20a2 100644
+--- a/frontend/src/pages/index/OverviewActionBar.tsx
++++ b/frontend/src/pages/index/OverviewActionBar.tsx
+@@ -7,7 +7,6 @@ import {
+   ArrowUpOutlined,
+   AreaChartOutlined,
+   BarsOutlined,
+-  CloudDownloadOutlined,
+   CloudServerOutlined,
+   ControlOutlined,
+   FileTextOutlined,
+@@ -57,8 +56,6 @@ export default function OverviewActionBar({
+   isMobile,
+   accessLogEnable,
+   panelVersion,
+-  latestVersion,
+-  updateAvailable,
+   onStopXray,
+   onRestartXray,
+   onOpenLogs,
+@@ -148,7 +145,7 @@ export default function OverviewActionBar({
+       <span className="ov-state-dot" style={{ color: status.xray.color }} />
+       <span>{`${t('pages.index.xrayStatus')} · ${stateText}`}</span>
+       {hasVersion && (
+-        <Tooltip title={t('pages.index.xraySwitch')}>
++        <Tooltip title={t('pages.index.managedUpdatesNotice')}>
+           <button type="button" className="ov-state-version" onClick={onOpenVersionSwitch}>
+             {`v${status.xray.version}`}
+           </button>
+@@ -173,22 +170,11 @@ export default function OverviewActionBar({
+         </Tooltip>
+       ) : null}
+ 
+-      {updateAvailable ? (
+-        <Tag
+-          className="ov-update-tag"
+-          color="warning"
+-          icon={<CloudDownloadOutlined />}
+-          onClick={onOpenPanelUpdate}
+-        >
+-          {`${t('update')} ${formatPanelVersion(latestVersion)}`}
+-        </Tag>
+-      ) : (
+-        <Tooltip title={t('pages.index.updatePanel')}>
+-          <button type="button" className="ov-panel-version ov-mono" onClick={onOpenPanelUpdate}>
+-            {formatPanelVersion(panelVersion)}
+-          </button>
+-        </Tooltip>
+-      )}
++      <Tooltip title={t('pages.index.managedUpdatesNotice')}>
++        <button type="button" className="ov-panel-version ov-mono" onClick={onOpenPanelUpdate}>
++          {formatPanelVersion(panelVersion)}
++        </button>
++      </Tooltip>
+ 
+       <div className="ov-bar-actions">
+         {actionGroups.map((group, groupIndex) => (
+diff --git a/frontend/src/pages/index/PanelUpdateModal.tsx b/frontend/src/pages/index/PanelUpdateModal.tsx
+index 10a22ee6..c7451f83 100644
+--- a/frontend/src/pages/index/PanelUpdateModal.tsx
++++ b/frontend/src/pages/index/PanelUpdateModal.tsx
+@@ -1,14 +1,7 @@
+-import { useState } from 'react';
++import { Modal, Tag } from 'antd';
+ import { useTranslation } from 'react-i18next';
+-import { Alert, Button, Modal, Switch, Tag } from 'antd';
+-import { CloudDownloadOutlined } from '@ant-design/icons';
+-
+-import { HttpUtil, PromiseUtil } from '@/utils';
+ import { formatPanelVersion } from '@/lib/panel-version';
+-import type { PanelUpdateStatus } from '@/generated/types';
+-import './PanelUpdateModal.css';
+-
+-type UpdateOutcome = 'success' | 'failed' | 'timeout';
++import ManagedUpdatesNotice from './ManagedUpdatesNotice';
+ 
+ export interface PanelUpdateInfo {
+   channel?: string;
+@@ -33,169 +26,15 @@ interface PanelUpdateModalProps {
+   onBusy: (e: BusyEvent) => void;
+ }
+ 
+-export default function PanelUpdateModal({
+-  open,
+-  info,
+-  devChannelEnable,
+-  onChannelChange,
+-  onClose,
+-  onBusy,
+-}: PanelUpdateModalProps) {
++export default function PanelUpdateModal({ open, info, onClose }: PanelUpdateModalProps) {
+   const { t } = useTranslation();
+-  const [modal, contextHolder] = Modal.useModal();
+-  const [channelBusy, setChannelBusy] = useState(false);
+-
+-  const isDev = info.channel === 'dev';
+-
+-  async function pollUpdateStatus(expectedRunId: string): Promise<UpdateOutcome> {
+-    await PromiseUtil.sleep(5000);
+-    const deadline = Date.now() + 90_000;
+-    while (Date.now() < deadline) {
+-      try {
+-        const msg = await HttpUtil.get<PanelUpdateStatus>(
+-          '/panel/api/server/getUpdateStatus',
+-          undefined,
+-          { silent: true, timeout: 2000 },
+-        );
+-        const status = msg?.obj ?? undefined;
+-        if (status?.runId === expectedRunId) {
+-          if (status.state === 'success') return 'success';
+-          if (status.state === 'failed') return 'failed';
+-        }
+-      } catch {
+-        /* still restarting */
+-      }
+-      await PromiseUtil.sleep(2000);
+-    }
+-    return 'timeout';
+-  }
+-
+-  async function handleChannel(checked: boolean) {
+-    if (!onChannelChange) return;
+-    setChannelBusy(true);
+-    try {
+-      await onChannelChange(checked);
+-    } finally {
+-      setChannelBusy(false);
+-    }
+-  }
+-
+-  async function runPanelUpdate() {
+-    const baseTip = t('pages.index.dontRefresh');
+-    const tip = info.latestVersion ? `${baseTip} (${info.latestVersion})` : baseTip;
+-    onClose();
+-    onBusy({ busy: true, tip });
+-    const result = await HttpUtil.post<{ runId: string }>('/panel/api/server/updatePanel');
+-    if (!result?.success) {
+-      onBusy({ busy: false });
+-      return;
+-    }
+-    const outcome = await pollUpdateStatus(result.obj?.runId ?? '');
+-    onBusy({ busy: false });
+-    if (outcome === 'success') {
+-      await PromiseUtil.sleep(800);
+-      window.location.reload();
+-      return;
+-    }
+-    modal[outcome === 'failed' ? 'error' : 'warning']({
+-      title: t(
+-        outcome === 'failed'
+-          ? 'pages.index.panelUpdateFailedTitle'
+-          : 'pages.index.panelUpdateUnknownTitle',
+-      ),
+-      content: t(
+-        outcome === 'failed'
+-          ? 'pages.index.panelUpdateFailedDesc'
+-          : 'pages.index.panelUpdateUnknownDesc',
+-      ),
+-      okText: t('refresh'),
+-      onOk: () => window.location.reload(),
+-    });
+-  }
+-
+-  function updatePanel() {
+-    modal.confirm({
+-      title: t('pages.index.panelUpdateDialog'),
+-      content: t('pages.index.panelUpdateDialogDesc').replace(
+-        '#version#',
+-        info.latestVersion || '',
+-      ),
+-      okText: t('confirm'),
+-      cancelText: t('cancel'),
+-      onOk: () => {
+-        void runPanelUpdate();
+-      },
+-    });
+-  }
+-
+   return (
+-    <>
+-      {contextHolder}
+-      <Modal open={open} title={t('pages.index.updatePanel')} footer={null} onCancel={onClose}>
+-        {info.updateAvailable && (
+-          <Alert
+-            type="warning"
+-            className="mb-12"
+-            title={t('pages.index.panelUpdateDesc')}
+-            showIcon
+-          />
+-        )}
+-
+-        <div className="version-list">
+-          <div className="version-list-item">
+-            <span>{t('pages.index.devChannel')}</span>
+-            <Switch checked={!!devChannelEnable} loading={channelBusy} onChange={handleChannel} />
+-          </div>
+-        </div>
+-
+-        {devChannelEnable && (
+-          <Alert
+-            type="info"
+-            className="mb-12"
+-            title={t('pages.index.devChannelWarning')}
+-            showIcon
+-          />
+-        )}
+-
+-        <div className="version-list">
+-          <div className="version-list-item">
+-            <span>
+-              {isDev ? t('pages.index.currentCommit') : t('pages.index.currentPanelVersion')}
+-            </span>
+-            {isDev ? (
+-              <Tag color="green">{info.currentCommit || '?'}</Tag>
+-            ) : (
+-              <Tag color="green">
+-                {formatPanelVersion(window.X_UI_CUR_VER || info.currentVersion) || '?'}
+-              </Tag>
+-            )}
+-          </div>
+-          {info.updateAvailable ? (
+-            <div className="version-list-item">
+-              <span>
+-                {isDev ? t('pages.index.latestCommit') : t('pages.index.latestPanelVersion')}
+-              </span>
+-              <Tag color="purple">{(isDev ? info.latestCommit : info.latestVersion) || '-'}</Tag>
+-            </div>
+-          ) : (
+-            <div className="version-list-item">
+-              <span>{t('pages.index.panelUpToDate')}</span>
+-              <Tag color="green">{t('pages.index.panelUpToDate')}</Tag>
+-            </div>
+-          )}
+-        </div>
+-
+-        <div className="actions-row">
+-          <Button
+-            type="primary"
+-            disabled={!info.updateAvailable}
+-            onClick={updatePanel}
+-            icon={<CloudDownloadOutlined />}
+-          >
+-            {t('pages.index.updatePanel')}
+-          </Button>
+-        </div>
+-      </Modal>
+-    </>
++    <Modal open={open} title={t('pages.index.updatePanel')} footer={null} onCancel={onClose}>
++      <ManagedUpdatesNotice />
++      <span>{t('pages.index.currentPanelVersion')} </span>
++      <Tag color="green">
++        {formatPanelVersion(window.X_UI_CUR_VER || info.currentVersion) || '?'}
++      </Tag>
++    </Modal>
+   );
+ }
+diff --git a/frontend/src/pages/index/VersionModal.tsx b/frontend/src/pages/index/VersionModal.tsx
+index a7b6e9de..bca40cd0 100644
+--- a/frontend/src/pages/index/VersionModal.tsx
++++ b/frontend/src/pages/index/VersionModal.tsx
+@@ -1,13 +1,7 @@
+-import { useCallback, useEffect, useState } from 'react';
++import { Modal, Tag } from 'antd';
+ import { useTranslation } from 'react-i18next';
+-import { Alert, Button, Collapse, Modal, Radio, Spin, Tag, Tooltip } from 'antd';
+-import { ReloadOutlined } from '@ant-design/icons';
+-
+-import { HttpUtil } from '@/utils';
+-import { activateOnKey } from '@/utils/a11y';
+ import type { Status } from '@/models/status';
+-import GeodataSection from './GeodataSection';
+-import './VersionModal.css';
++import ManagedUpdatesNotice from './ManagedUpdatesNotice';
+ 
+ interface BusyEvent {
+   busy: boolean;
+@@ -21,159 +15,13 @@ interface VersionModalProps {
+   onBusy: (e: BusyEvent) => void;
+ }
+ 
+-const GEOFILES = [
+-  'geosite.dat',
+-  'geoip.dat',
+-  'geosite_IR.dat',
+-  'geoip_IR.dat',
+-  'geosite_RU.dat',
+-  'geoip_RU.dat',
+-];
+-
+-export default function VersionModal({ open, status, onClose, onBusy }: VersionModalProps) {
++export default function VersionModal({ open, status, onClose }: VersionModalProps) {
+   const { t } = useTranslation();
+-  const [modal, modalContextHolder] = Modal.useModal();
+-  const [activeKey, setActiveKey] = useState<string | string[]>('1');
+-  const [versions, setVersions] = useState<string[]>([]);
+-  const [loading, setLoading] = useState(false);
+-
+-  const fetchVersions = useCallback(async () => {
+-    try {
+-      const msg = await HttpUtil.get<string[]>('/panel/api/server/getXrayVersion');
+-      if (msg?.success) setVersions(msg.obj || []);
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, []);
+-
+-  const [wasOpen, setWasOpen] = useState(false);
+-  if (open !== wasOpen) {
+-    setWasOpen(open);
+-    if (open) setLoading(true);
+-  }
+-
+-  useEffect(() => {
+-    if (open) void fetchVersions();
+-  }, [open, fetchVersions]);
+-
+-  function switchXrayVersion(version: string) {
+-    modal.confirm({
+-      title: t('pages.index.xraySwitchVersionDialog'),
+-      content: t('pages.index.xraySwitchVersionDialogDesc').replace('#version#', version),
+-      okText: t('confirm'),
+-      cancelText: t('cancel'),
+-      onOk: async () => {
+-        onClose();
+-        onBusy({ busy: true, tip: t('pages.index.dontRefresh') });
+-        try {
+-          await HttpUtil.post(`/panel/api/server/installXray/${version}`);
+-        } finally {
+-          onBusy({ busy: false });
+-        }
+-      },
+-    });
+-  }
+-
+-  function updateGeofile(fileName: string) {
+-    const isSingle = !!fileName;
+-    modal.confirm({
+-      title: t('pages.index.geofileUpdateDialog'),
+-      content: isSingle
+-        ? t('pages.index.geofileUpdateDialogDesc').replace('#filename#', fileName)
+-        : t('pages.index.geofilesUpdateDialogDesc'),
+-      okText: t('confirm'),
+-      cancelText: t('cancel'),
+-      onOk: async () => {
+-        onClose();
+-        onBusy({ busy: true, tip: t('pages.index.dontRefresh') });
+-        const url = isSingle
+-          ? `/panel/api/server/updateGeofile/${fileName}`
+-          : '/panel/api/server/updateGeofile';
+-        try {
+-          await HttpUtil.post(url);
+-        } finally {
+-          onBusy({ busy: false });
+-        }
+-      },
+-    });
+-  }
+-
+-  const activeKeyStr = Array.isArray(activeKey) ? activeKey[0] : activeKey;
+-
+   return (
+     <Modal open={open} title={t('pages.index.xrayUpdates')} footer={null} onCancel={onClose}>
+-      {modalContextHolder}
+-      <Spin spinning={loading}>
+-        <Collapse
+-          accordion
+-          activeKey={activeKey}
+-          onChange={setActiveKey}
+-          items={[
+-            {
+-              key: '1',
+-              label: 'Xray',
+-              children: (
+-                <>
+-                  <Alert
+-                    type="warning"
+-                    className="mb-12"
+-                    title={t('pages.index.xraySwitchClickDesk')}
+-                    showIcon
+-                  />
+-                  <div className="version-list">
+-                    {versions.map((version, index) => (
+-                      <div key={version} className="version-list-item">
+-                        <Tag color={index % 2 === 0 ? 'purple' : 'green'}>{version}</Tag>
+-                        <Radio
+-                          checked={version === `v${status?.xray?.version}`}
+-                          onClick={() => switchXrayVersion(version)}
+-                        />
+-                      </div>
+-                    ))}
+-                  </div>
+-                </>
+-              ),
+-            },
+-            {
+-              key: '2',
+-              label: 'Geofiles',
+-              children: (
+-                <>
+-                  <div className="version-list">
+-                    {GEOFILES.map((file, index) => (
+-                      <div key={file} className="version-list-item">
+-                        <Tag color={index % 2 === 0 ? 'purple' : 'green'}>{file}</Tag>
+-                        <Tooltip title={t('update')}>
+-                          <ReloadOutlined
+-                            className="reload-icon"
+-                            role="button"
+-                            tabIndex={0}
+-                            aria-label={t('update')}
+-                            onClick={() => updateGeofile(file)}
+-                            onKeyDown={activateOnKey(() => updateGeofile(file))}
+-                          />
+-                        </Tooltip>
+-                      </div>
+-                    ))}
+-                  </div>
+-                  <div className="actions-row">
+-                    <Button onClick={() => updateGeofile('')}>
+-                      {t('pages.index.geofilesUpdateAll')}
+-                    </Button>
+-                  </div>
+-                </>
+-              ),
+-            },
+-            {
+-              key: '3',
+-              label: t('pages.index.geodataTitle'),
+-              children: (
+-                <GeodataSection active={activeKeyStr === '3'} onBusy={onBusy} onClose={onClose} />
+-              ),
+-            },
+-          ]}
+-        />
+-      </Spin>
++      <ManagedUpdatesNotice />
++      <span>Xray </span>
++      <Tag>{status.xray.version}</Tag>
+     </Modal>
+   );
+ }
+diff --git a/frontend/src/pages/nodes/NodeList.tsx b/frontend/src/pages/nodes/NodeList.tsx
+index aa81fa65..6d899bdf 100644
+--- a/frontend/src/pages/nodes/NodeList.tsx
++++ b/frontend/src/pages/nodes/NodeList.tsx
+@@ -22,6 +22,7 @@ import {
+ } from '@ant-design/icons';
+ 
+ import NodeHistoryPanel from './NodeHistoryPanel';
++import ManagedUpdatesNotice from '../index/ManagedUpdatesNotice';
+ import type { NodeRecord } from '@/api/queries/useNodesQuery';
+ import { isPanelUpdateAvailable } from '@/lib/panel-version';
+ import { activateOnKey } from '@/utils/a11y';
+@@ -269,13 +270,14 @@ export default function NodeList({
+                 />
+               </Tooltip>
+               {isUpdateEligible(record) && (
+-                <Tooltip title={t('pages.nodes.updatePanel')}>
++                <Tooltip title={t('pages.index.managedUpdatesNotice')}>
+                   <Button
+                     type="text"
+                     size="small"
+                     style={{ fontSize: 16 }}
+                     icon={<CloudDownloadOutlined />}
+                     aria-label={t('pages.nodes.updatePanel')}
++                    disabled
+                     onClick={() => onUpdateNode(record)}
+                   />
+                 </Tooltip>
+@@ -430,15 +432,8 @@ export default function NodeList({
+             <Space size={4}>
+               <span>{record.panelVersion || '-'}</span>
+               {canUpdate && (
+-                <Tooltip title={`${t('pages.nodes.updateAvailable')}: ${latestVersion}`}>
+-                  <Tag
+-                    color="orange"
+-                    style={{ margin: 0, cursor: 'pointer' }}
+-                    role="button"
+-                    tabIndex={0}
+-                    onClick={() => onUpdateNode(record)}
+-                    onKeyDown={activateOnKey(() => onUpdateNode(record))}
+-                  >
++                <Tooltip title={t('pages.index.managedUpdatesNotice')}>
++                  <Tag color="orange" style={{ margin: 0 }}>
+                     {t('pages.nodes.updateAvailable')}
+                   </Tag>
+                 </Tooltip>
+@@ -578,6 +573,7 @@ export default function NodeList({
+ 
+   return (
+     <Card size="small" hoverable>
++      <ManagedUpdatesNotice />
+       <div className="toolbar">
+         <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>
+           {t('pages.nodes.addNode')}
+@@ -586,7 +582,12 @@ export default function NodeList({
+           {t('pages.nodes.mtls.title')}
+         </Button>
+         {selectedIds.length > 0 && (
+-          <Button icon={<CloudDownloadOutlined />} onClick={onUpdateSelected}>
++          <Button
++            disabled
++            title={t('pages.index.managedUpdatesNotice')}
++            icon={<CloudDownloadOutlined />}
++            onClick={onUpdateSelected}
++          >
+             {t('pages.nodes.updateSelected', { count: selectedIds.length })}
+           </Button>
+         )}
+@@ -673,6 +674,7 @@ export default function NodeList({
+                                 ? [
+                                     {
+                                       key: 'update',
++                                      disabled: true,
+                                       label: (
+                                         <>
+                                           <CloudDownloadOutlined /> {t('pages.nodes.updatePanel')}
+diff --git a/frontend/src/test/geodata-section.test.tsx b/frontend/src/test/geodata-section.test.tsx
+index 8c11ffb5..44a21ffd 100644
+--- a/frontend/src/test/geodata-section.test.tsx
++++ b/frontend/src/test/geodata-section.test.tsx
+@@ -1,79 +1,16 @@
+-import { render, screen, waitFor } from '@testing-library/react';
+-import userEvent from '@testing-library/user-event';
+-import { afterEach, describe, expect, it, vi } from 'vitest';
+-
++import { render, screen } from '@testing-library/react';
++import { describe, expect, it, vi } from 'vitest';
+ import GeodataSection from '@/pages/index/GeodataSection';
+-import { HttpUtil, Msg } from '@/utils';
+-
+-const STANDARD_SOURCES = [
+-  {
+-    url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat',
+-    file: 'geoip.dat',
+-  },
+-  {
+-    url: 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat',
+-    file: 'geosite.dat',
+-  },
+-  {
+-    url: 'https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat',
+-    file: 'geoip_IR.dat',
+-  },
+-  {
+-    url: 'https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat',
+-    file: 'geosite_IR.dat',
+-  },
+-  {
+-    url: 'https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat',
+-    file: 'geoip_RU.dat',
+-  },
+-  {
+-    url: 'https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat',
+-    file: 'geosite_RU.dat',
+-  },
+-];
+-
+-const CUSTOM_SOURCE = {
+-  url: 'https://example.com/geosite_custom.dat',
+-  file: 'geosite_custom.dat',
+-};
+-
+-afterEach(() => {
+-  vi.restoreAllMocks();
+-});
+-
+-describe('GeodataSection', () => {
+-  it('adds the standard sources without removing custom sources', async () => {
+-    vi.spyOn(HttpUtil, 'post').mockResolvedValue(
+-      new Msg(
+-        true,
+-        '',
+-        JSON.stringify({
+-          xraySetting: { outbounds: [], geodata: { assets: [CUSTOM_SOURCE] } },
+-          geodataSources: STANDARD_SOURCES,
+-        }),
+-      ),
+-    );
+-    const user = userEvent.setup();
++import { HttpUtil } from '@/utils';
+ 
++describe('ops managed Geo updates', () => {
++  it('cannot fetch sources, enable a schedule, save, or restart a core', () => {
++    const post = vi.spyOn(HttpUtil, 'post');
+     render(<GeodataSection active onBusy={vi.fn()} onClose={vi.fn()} />);
+-
+-    await screen.findByRole('button', {
+-      name: 'Use standard sources',
+-    });
+-    await waitFor(() =>
+-      expect(
+-        (screen.getByRole('button', { name: 'Use standard sources' }) as HTMLButtonElement)
+-          .disabled,
+-      ).toBe(false),
+-    );
+-    await user.click(screen.getByRole('button', { name: 'Use standard sources' }));
+-
+-    await waitFor(() => {
+-      expect(screen.getByDisplayValue(CUSTOM_SOURCE.url)).toBeTruthy();
+-      for (const source of STANDARD_SOURCES) {
+-        expect(screen.getByDisplayValue(source.url)).toBeTruthy();
+-        expect(screen.getByDisplayValue(source.file)).toBeTruthy();
+-      }
+-    });
++    expect(screen.getByText(/pinned operations workflow/)).toBeTruthy();
++    expect(screen.queryByRole('button')).toBeNull();
++    expect(screen.queryByRole('textbox')).toBeNull();
++    expect(post).not.toHaveBeenCalled();
++    post.mockRestore();
+   });
+ });
+diff --git a/frontend/src/test/managed-updates.test.tsx b/frontend/src/test/managed-updates.test.tsx
+new file mode 100644
+index 00000000..b2d4ae2f
+--- /dev/null
++++ b/frontend/src/test/managed-updates.test.tsx
+@@ -0,0 +1,57 @@
++import { fireEvent, screen } from '@testing-library/react';
++import { describe, expect, it, vi } from 'vitest';
++import VersionModal from '@/pages/index/VersionModal';
++import NodeList from '@/pages/nodes/NodeList';
++import { Status } from '@/models/status';
++import { HttpUtil } from '@/utils';
++import { renderWithProviders } from './test-utils';
++
++const noop = () => {};
++
++describe('ops managed Xray and node updates', () => {
++  it('keeps the installed Xray version visible without downloads or update controls', () => {
++    const get = vi.spyOn(HttpUtil, 'get');
++    const post = vi.spyOn(HttpUtil, 'post');
++    const status = new Status();
++    status.xray.version = '26.10.10';
++    renderWithProviders(<VersionModal open status={status} onClose={noop} onBusy={noop} />);
++    expect(screen.getByText('26.10.10')).toBeTruthy();
++    expect(screen.getByText(/pinned operations workflow/)).toBeTruthy();
++    expect(screen.queryByRole('radio')).toBeNull();
++    expect(get).not.toHaveBeenCalled();
++    expect(post).not.toHaveBeenCalled();
++    get.mockRestore();
++    post.mockRestore();
++  });
++  it('disables per-node and bulk update actions even when an upstream version is available', () => {
++    const update = vi.fn();
++    renderWithProviders(
++      <NodeList
++        nodes={[
++          { id: 1, name: 'test-node', enable: true, status: 'online', panelVersion: '3.10.2' },
++        ]}
++        latestVersion="99.0.0"
++        isMobile={false}
++        selectedIds={[1]}
++        onSelectionChange={noop}
++        onAdd={noop}
++        onMtls={noop}
++        onEdit={noop}
++        onDelete={noop}
++        onProbe={noop}
++        onToggleEnable={noop}
++        onUpdateNode={update}
++        onUpdateSelected={update}
++      />,
++    );
++    const buttons = screen
++      .getAllByRole('button')
++      .filter((b) => /update/i.test(b.textContent || b.getAttribute('aria-label') || ''));
++    expect(buttons.length).toBeGreaterThan(0);
++    for (const button of buttons) {
++      expect((button as HTMLButtonElement).disabled).toBe(true);
++      fireEvent.click(button);
++    }
++    expect(update).not.toHaveBeenCalled();
++  });
++});
+diff --git a/frontend/src/test/panel-update-modal.test.tsx b/frontend/src/test/panel-update-modal.test.tsx
+index a94d30a5..907bb17c 100644
+--- a/frontend/src/test/panel-update-modal.test.tsx
++++ b/frontend/src/test/panel-update-modal.test.tsx
+@@ -1,62 +1,29 @@
+ import { fireEvent, screen } from '@testing-library/react';
+-import { Modal } from 'antd';
+-import { afterEach, describe, expect, it, vi } from 'vitest';
+-
++import { describe, expect, it, vi } from 'vitest';
+ import PanelUpdateModal from '@/pages/index/PanelUpdateModal';
+ import { HttpUtil } from '@/utils';
+ import { renderWithProviders } from './test-utils';
+ 
+-let restoreUseModal = () => {};
+-
+-describe('panel update modal', () => {
+-  afterEach(() => {
+-    restoreUseModal();
+-    restoreUseModal = () => {};
+-    vi.mocked(HttpUtil.post).mockReset();
+-  });
+-
+-  it('lets the confirmation close before the update request finishes', () => {
+-    const confirm = vi.fn();
+-    const useModal = vi.spyOn(Modal, 'useModal').mockReturnValue([
+-      {
+-        confirm,
+-        error: vi.fn(),
+-        warning: vi.fn(),
+-      } as unknown as ReturnType<typeof Modal.useModal>[0],
+-      <span key="modal-context" />,
+-    ]);
+-    restoreUseModal = () => useModal.mockRestore();
+-    vi.mocked(HttpUtil.post).mockReturnValue(new Promise(() => {}));
+-    const onClose = vi.fn();
+-    const onBusy = vi.fn();
++describe('ops managed panel updates', () => {
++  it('shows the installed version and operations notice, without an update or channel control', () => {
++    const post = vi.spyOn(HttpUtil, 'post');
++    const change = vi.fn();
+     renderWithProviders(
+       <PanelUpdateModal
+         open
+-        info={{
+-          channel: 'dev',
+-          currentVersion: 'dev+old',
+-          latestVersion: 'dev+new',
+-          currentCommit: 'old',
+-          latestCommit: 'new',
+-          updateAvailable: true,
+-        }}
++        info={{ currentVersion: '3.10.2', latestVersion: '99.0.0', updateAvailable: true }}
+         devChannelEnable
+-        onClose={onClose}
+-        onBusy={onBusy}
++        onChannelChange={change}
++        onClose={vi.fn()}
++        onBusy={vi.fn()}
+       />,
+     );
+-
+-    fireEvent.click(screen.getByRole('button', { name: /Update Panel/ }));
+-    expect(confirm).toHaveBeenCalledOnce();
+-    const config = confirm.mock.calls[0]?.[0];
+-    if (!config?.onOk) throw new Error('Confirmation onOk handler was not registered');
+-
+-    expect(config.onOk()).toBeUndefined();
+-    expect(onClose).toHaveBeenCalledOnce();
+-    expect(HttpUtil.post).toHaveBeenCalledWith('/panel/api/server/updatePanel');
+-    expect(onBusy).toHaveBeenCalledWith({
+-      busy: true,
+-      tip: 'Installation is in progress, please do not refresh this page (dev+new)',
+-    });
++    expect(screen.getByText(/pinned operations workflow/)).toBeTruthy();
++    expect(screen.getByText('v3.10.2')).toBeTruthy();
++    expect(screen.queryByRole('switch')).toBeNull();
++    for (const button of screen.getAllByRole('button')) fireEvent.click(button);
++    expect(change).not.toHaveBeenCalled();
++    expect(post).not.toHaveBeenCalled();
++    post.mockRestore();
+   });
+ });
+diff --git a/internal/config/managed_updates.go b/internal/config/managed_updates.go
+new file mode 100644
+index 00000000..508f97ef
+--- /dev/null
++++ b/internal/config/managed_updates.go
+@@ -0,0 +1,7 @@
++package config
++
++import "errors"
++
++// ErrBuiltinUpdatesDisabled is a fixed ops-build policy, not a runtime setting.
++// Program and Geo assets are installed only by the pinned operations release flow.
++var ErrBuiltinUpdatesDisabled = errors.New("built-in panel, node, Xray and Geo updates are disabled; use the pinned operations update workflow")
+diff --git a/internal/web/controller/managed_updates_test.go b/internal/web/controller/managed_updates_test.go
+new file mode 100644
+index 00000000..3f5f3d4d
+--- /dev/null
++++ b/internal/web/controller/managed_updates_test.go
+@@ -0,0 +1,42 @@
++package controller
++
++import (
++	"github.com/gin-gonic/gin"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++func TestOpsManagedUpdatesRoutesRejectAllMutations(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	e := gin.New()
++	(&ServerController{}).initRouter(e.Group("/panel/api/server"))
++	(&NodeController{}).initRouter(e.Group("/panel/api/nodes"))
++	for _, path := range []string{
++		"/panel/api/server/installXray/v26.10.10",
++		"/panel/api/server/updatePanel",
++		"/panel/api/server/setUpdateChannel",
++		"/panel/api/server/updateGeofile",
++		"/panel/api/server/updateGeofile/geoip.dat",
++		"/panel/api/nodes/updatePanel",
++	} {
++		for _, body := range []string{"", "dev=true", "dev=invalid", `{"ids":[1],"dev":true}`} {
++			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
++			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++			w := httptest.NewRecorder()
++			e.ServeHTTP(w, req)
++			if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), `"success":false`) || !strings.Contains(w.Body.String(), "pinned operations") {
++				t.Fatalf("%s: %d %s", path, w.Code, w.Body.String())
++			}
++		}
++	}
++	// These controls remain routed to their original handlers; only updates are denied.
++	for _, r := range e.Routes() {
++		if strings.HasSuffix(r.Path, "/restartXrayService") || strings.HasSuffix(r.Path, "/stopXrayService") || strings.HasSuffix(r.Path, "/status") {
++			if strings.Contains(r.Handler, "rejectBuiltinUpdate") {
++				t.Fatalf("ordinary control disabled: %s", r.Path)
++			}
++		}
++	}
++}
+diff --git a/internal/web/controller/node.go b/internal/web/controller/node.go
+index beaaec68..5c629db1 100644
+--- a/internal/web/controller/node.go
++++ b/internal/web/controller/node.go
+@@ -40,7 +40,7 @@ func (a *NodeController) initRouter(g *gin.RouterGroup) {
+ 	g.POST("/certFingerprint", a.certFingerprint)
+ 	g.POST("/inbounds", a.inbounds)
+ 	g.POST("/probe/:id", a.probe)
+-	g.POST("/updatePanel", a.updatePanel)
++	g.POST("/updatePanel", rejectBuiltinUpdate)
+ 	g.GET("/history/:id/:metric/:bucket", a.history)
+ 	g.POST("/mtls/ca", a.mtlsCa)
+ 	g.POST("/mtls/trustCA", a.setMtlsTrustCA)
+diff --git a/internal/web/controller/server.go b/internal/web/controller/server.go
+index a7a13848..61fa7494 100644
+--- a/internal/web/controller/server.go
++++ b/internal/web/controller/server.go
+@@ -9,6 +9,7 @@ import (
+ 	"strconv"
+ 	"time"
+ 
++	"github.com/mhsanaei/3x-ui/v3/internal/config"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/util/netsafe"
+@@ -69,11 +70,11 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
+ 
+ 	g.POST("/stopXrayService", a.stopXrayService)
+ 	g.POST("/restartXrayService", a.restartXrayService)
+-	g.POST("/installXray/:version", a.installXray)
+-	g.POST("/updatePanel", a.updatePanel)
+-	g.POST("/setUpdateChannel", a.setUpdateChannel)
+-	g.POST("/updateGeofile", a.updateGeofile)
+-	g.POST("/updateGeofile/:fileName", a.updateGeofile)
++	g.POST("/installXray/:version", rejectBuiltinUpdate)
++	g.POST("/updatePanel", rejectBuiltinUpdate)
++	g.POST("/setUpdateChannel", rejectBuiltinUpdate)
++	g.POST("/updateGeofile", rejectBuiltinUpdate)
++	g.POST("/updateGeofile/:fileName", rejectBuiltinUpdate)
+ 	g.POST("/logs/:count", a.getLogs)
+ 	g.POST("/xraylogs/:count", a.getXrayLogs)
+ 	g.POST("/amneziawglogs/:count", a.getAmneziaWGLogs)
+@@ -550,3 +551,9 @@ func (a *ServerController) setClientIps(c *gin.Context) {
+ 	err := (&service.InboundService{}).MergeInboundClientIps(ips)
+ 	jsonMsg(c, "Client IPs merged", err)
+ }
++
++// rejectBuiltinUpdate refuses before parsing input, touching settings, downloading,
++// launching a process or restarting a service. It also protects node API callers.
++func rejectBuiltinUpdate(c *gin.Context) {
++	c.JSON(http.StatusForbidden, entity.Msg{Success: false, Msg: config.ErrBuiltinUpdatesDisabled.Error()})
++}
+diff --git a/internal/web/runtime/managed_updates_test.go b/internal/web/runtime/managed_updates_test.go
+new file mode 100644
+index 00000000..300332e9
+--- /dev/null
++++ b/internal/web/runtime/managed_updates_test.go
+@@ -0,0 +1,26 @@
++package runtime
++
++import (
++	"context"
++	"errors"
++	"github.com/mhsanaei/3x-ui/v3/internal/config"
++	"net/http"
++	"net/http/httptest"
++	"sync/atomic"
++	"testing"
++)
++
++func TestOpsManagedUpdatesRemoteNeverContactsNode(t *testing.T) {
++	var calls atomic.Int32
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls.Add(1); w.WriteHeader(http.StatusOK) }))
++	defer srv.Close()
++	r := NewRemote(nodeForPlainServer(t, srv, "verify", "test"), nil)
++	for _, dev := range []bool{false, true} {
++		if err := r.UpdatePanel(context.Background(), dev); !errors.Is(err, config.ErrBuiltinUpdatesDisabled) {
++			t.Fatalf("update error: %v", err)
++		}
++	}
++	if calls.Load() != 0 {
++		t.Fatalf("update contacted a node %d times", calls.Load())
++	}
++}
+diff --git a/internal/web/runtime/remote.go b/internal/web/runtime/remote.go
+index 479669d7..f848833e 100644
+--- a/internal/web/runtime/remote.go
++++ b/internal/web/runtime/remote.go
+@@ -17,6 +17,7 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	"github.com/mhsanaei/3x-ui/v3/internal/config"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/crypto/nodetoken"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+@@ -670,12 +671,7 @@ func (r *Remote) RestartXray(ctx context.Context) error {
+ // launched; the new version surfaces on the next heartbeat. When dev is true the
+ // node is moved to the rolling dev channel instead of the latest stable release.
+ func (r *Remote) UpdatePanel(ctx context.Context, dev bool) error {
+-	var body any
+-	if dev {
+-		body = url.Values{"dev": {"true"}}
+-	}
+-	_, err := r.do(ctx, http.MethodPost, "panel/api/server/updatePanel", body)
+-	return err
++	return config.ErrBuiltinUpdatesDisabled
+ }
+ 
+ // WebCertFiles holds a node's own web TLS certificate and key file paths.
+diff --git a/internal/web/service/managed_updates_test.go b/internal/web/service/managed_updates_test.go
+new file mode 100644
+index 00000000..ca4c414b
+--- /dev/null
++++ b/internal/web/service/managed_updates_test.go
+@@ -0,0 +1,109 @@
++package service
++
++import (
++	"context"
++	"errors"
++	"net"
++	"net/http"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++
++	"github.com/mhsanaei/3x-ui/v3/internal/config"
++)
++
++func TestOpsManagedUpdatesRejectBeforeSideEffects(t *testing.T) {
++	setupSettingTestDB(t)
++	dir := t.TempDir()
++	t.Setenv("XUI_BIN_FOLDER", dir)
++	asset := filepath.Join(dir, "geoip.dat")
++	if err := os.WriteFile(asset, []byte("existing rules"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	var downloads atomic.Int32
++	original := http.DefaultTransport
++	transport := original.(*http.Transport).Clone()
++	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
++		downloads.Add(1)
++		return nil, errors.New("unexpected download")
++	}
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
++	var restarted bool
++	restartStub(t, &restarted)
++	s := &ServerService{}
++	for _, call := range []func() error{
++		func() error { return s.UpdateXray("v26.10.10") },
++		func() error { return s.UpdateXray("invalid-version") },
++		func() error { return s.UpdateGeofile("") },
++		func() error { return s.UpdateGeofile("geoip.dat") },
++		func() error { return s.UpdateGeofile("../../etc/passwd") },
++		func() error { _, err := (&NodeService{}).UpdatePanels([]int{1, 2}, false); return err },
++		func() error { _, err := (&NodeService{}).UpdatePanels([]int{1}, true); return err },
++		func() error { return (&SettingService{}).SetDevChannelEnable(true) },
++	} {
++		if err := call(); !errors.Is(err, config.ErrBuiltinUpdatesDisabled) {
++			t.Fatalf("error = %v", err)
++		}
++	}
++	if downloads.Load() != 0 || restarted {
++		t.Fatalf("downloads=%d restart=%v", downloads.Load(), restarted)
++	}
++	files, err := os.ReadDir(dir)
++	if err != nil || len(files) != 1 {
++		t.Fatalf("asset directory changed: %v %v", files, err)
++	}
++	got, err := os.ReadFile(asset)
++	if err != nil || string(got) != "existing rules" {
++		t.Fatalf("asset changed: %q %v", got, err)
++	}
++	enabled, err := (&SettingService{}).GetDevChannelEnable()
++	if err != nil || enabled {
++		t.Fatalf("channel changed: %v %v", enabled, err)
++	}
++}
++
++func TestOpsManagedUpdatesRejectNativeGeodataWithoutSaving(t *testing.T) {
++	setupSettingTestDB(t)
++	s := &XraySettingService{}
++	before, err := s.GetXrayConfigTemplate()
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, template := range []string{
++		`{"geodata":{"assets":[{"url":"https://example.invalid/geoip.dat","file":"geoip.dat"}]}}`,
++		`{"xraySetting":{"geodata":{"assets":[{"url":"https://example.invalid/custom.dat","file":"custom.dat"}]}}}`,
++	} {
++		if err := s.SaveXraySetting(template); !errors.Is(err, config.ErrBuiltinUpdatesDisabled) {
++			t.Fatalf("save error = %v", err)
++		}
++	}
++	after, err := s.GetXrayConfigTemplate()
++	if err != nil || before != after {
++		t.Fatal("rejected request changed the stored template")
++	}
++	if err := s.SaveXraySetting(`{"geodata":{"assets":[]},"inbounds":[],"outbounds":[]}`); err != nil {
++		t.Fatalf("ordinary config blocked: %v", err)
++	}
++}
++
++func TestOpsManagedUpdatesOmitRestoredGeodataAtRuntime(t *testing.T) {
++	setupSettingTestDB(t)
++	template := `{"geodata":{"assets":[{"url":"https://example.invalid/geoip.dat","file":"geoip.dat"}]},"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[]}`
++	s := &SettingService{}
++	if err := s.saveSetting("xrayTemplateConfig", template); err != nil {
++		t.Fatal(err)
++	}
++	cfg, err := (&XrayService{}).GetXrayConfig()
++	if err != nil {
++		t.Fatalf("runtime config remains usable: %v", err)
++	}
++	if len(cfg.Geodata) != 0 {
++		t.Fatalf("native downloader remains active: %s", cfg.Geodata)
++	}
++	stored, err := s.GetXrayConfigTemplate()
++	if err != nil || stored != template {
++		t.Fatal("runtime generation changed the stored template")
++	}
++}
+diff --git a/internal/web/service/node.go b/internal/web/service/node.go
+index 9a770f0c..47fae465 100644
+--- a/internal/web/service/node.go
++++ b/internal/web/service/node.go
+@@ -8,6 +8,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"github.com/mhsanaei/3x-ui/v3/internal/config"
+ 	"io"
+ 	"net"
+ 	"net/http"
+@@ -935,45 +936,7 @@ type NodeUpdateResult struct {
+ // enabled, online nodes are eligible — an offline node can't be reached, so it
+ // is reported as skipped rather than silently dropped.
+ func (s *NodeService) UpdatePanels(ids []int, dev bool) ([]NodeUpdateResult, error) {
+-	mgr := runtime.GetManager()
+-	if mgr == nil {
+-		return nil, fmt.Errorf("runtime manager unavailable")
+-	}
+-	results, panics := fanoutInboundResults(ids, nodeFanoutConcurrency, func(i int) NodeUpdateResult {
+-		id := ids[i]
+-		n, err := s.GetById(id)
+-		if err != nil || n == nil {
+-			return NodeUpdateResult{Id: id, OK: false, Error: "node not found"}
+-		}
+-		res := NodeUpdateResult{Id: id, Name: n.Name}
+-		switch {
+-		case !n.Enable:
+-			res.Error = "node is disabled"
+-		case n.Status != "online":
+-			res.Error = "node is offline"
+-		default:
+-			remote, remoteErr := mgr.RemoteFor(n)
+-			if remoteErr != nil {
+-				res.Error = remoteErr.Error()
+-				break
+-			}
+-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+-			updErr := remote.UpdatePanel(ctx, dev)
+-			cancel()
+-			if updErr != nil {
+-				res.Error = updErr.Error()
+-			} else {
+-				res.OK = true
+-			}
+-		}
+-		return res
+-	})
+-	for i, panicErr := range panics {
+-		if panicErr != nil {
+-			results[i] = NodeUpdateResult{Id: ids[i], Error: panicErr.Error()}
+-		}
+-	}
+-	return results, nil
++	return nil, config.ErrBuiltinUpdatesDisabled
+ }
+ 
+ func (s *NodeService) UpdateHeartbeat(id int, p HeartbeatPatch) error {
+diff --git a/internal/web/service/node_admin_fanout_test.go b/internal/web/service/node_admin_fanout_test.go
+index 2930d94b..5ca53ae6 100644
+--- a/internal/web/service/node_admin_fanout_test.go
++++ b/internal/web/service/node_admin_fanout_test.go
+@@ -3,11 +3,6 @@ package service
+ import (
+ 	"context"
+ 	"fmt"
+-	"io"
+-	"net/http"
+-	"net/http/httptest"
+-	"strconv"
+-	"strings"
+ 	"sync"
+ 	"sync/atomic"
+ 	"testing"
+@@ -113,49 +108,3 @@ func TestDelInboundsPushesNodeDeletesConcurrently(t *testing.T) {
+ 		t.Fatalf("DelInbounds = %+v, %v; want 3 deleted", result, err)
+ 	}
+ }
+-
+-func TestUpdatePanelsReachesNodesConcurrently(t *testing.T) {
+-	setupConflictDB(t)
+-	useTestRuntimeManager(t)
+-	gate := newFanoutGate()
+-	var ids []int
+-	for i := range 3 {
+-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+-			_, _ = io.Copy(io.Discard, r.Body)
+-			if strings.HasSuffix(r.URL.Path, "server/updatePanel") {
+-				_ = gate.hold(r.Context())
+-			}
+-			w.Header().Set("Content-Type", "application/json")
+-			_, _ = w.Write([]byte(`{"success":true}`))
+-		}))
+-		t.Cleanup(srv.Close)
+-		host, port, _ := strings.Cut(strings.TrimPrefix(srv.URL, "http://"), ":")
+-		portNum, _ := strconv.Atoi(port)
+-		node := &model.Node{
+-			Name: fmt.Sprintf("panel-%d", i), Scheme: "http", Address: host, Port: portNum, BasePath: "/",
+-			ApiToken: "tok", Enable: true, Status: "online", AllowPrivateAddress: true, TlsVerifyMode: "verify",
+-		}
+-		if err := database.GetDB().Create(node).Error; err != nil {
+-			t.Fatalf("create node: %v", err)
+-		}
+-		ids = append(ids, node.Id)
+-	}
+-	done := make(chan struct{})
+-	var results []NodeUpdateResult
+-	go func() {
+-		defer close(done)
+-		results, _ = (&NodeService{}).UpdatePanels(ids, false)
+-	}()
+-	t.Cleanup(func() { gate.open(); <-done })
+-	gate.waitAll(t, 3, "UpdatePanels")
+-	gate.open()
+-	<-done
+-	if len(results) != len(ids) {
+-		t.Fatalf("UpdatePanels returned %d results for %d nodes", len(results), len(ids))
+-	}
+-	for i, res := range results {
+-		if res.Id != ids[i] || !res.OK {
+-			t.Fatalf("UpdatePanels result %d = %+v, want node %d updated, in request order", i, res, ids[i])
+-		}
+-	}
+-}
+diff --git a/internal/web/service/panel/managed_updates_test.go b/internal/web/service/panel/managed_updates_test.go
+new file mode 100644
+index 00000000..cfd50e63
+--- /dev/null
++++ b/internal/web/service/panel/managed_updates_test.go
+@@ -0,0 +1,37 @@
++package panel
++
++import (
++	"errors"
++	"github.com/mhsanaei/3x-ui/v3/internal/config"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestOpsManagedUpdatesPanelNeverLaunchesUpdater(t *testing.T) {
++	dir := t.TempDir()
++	t.Setenv("XUI_DB_FOLDER", dir)
++	t.Setenv("XUI_MAIN_FOLDER", dir)
++	t.Setenv("XUI_SERVICE", dir)
++	t.Setenv("TMPDIR", dir)
++	before, err := os.ReadDir(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	s := &PanelService{}
++	for _, call := range []func() (int64, error){s.StartUpdate, func() (int64, error) { return s.StartUpdateChannel(false) }, func() (int64, error) { return s.StartUpdateChannel(true) }} {
++		id, err := call()
++		if id != 0 || !errors.Is(err, config.ErrBuiltinUpdatesDisabled) {
++			t.Fatalf("run=%d error=%v", id, err)
++		}
++	}
++	after, err := os.ReadDir(dir)
++	if err != nil || len(before) != len(after) {
++		t.Fatalf("updater wrote files under %s", filepath.Clean(dir))
++	}
++	updateMu.Lock()
++	defer updateMu.Unlock()
++	if updateRunning {
++		t.Fatal("disabled update acquired a process slot")
++	}
++}
+diff --git a/internal/web/service/panel/panel.go b/internal/web/service/panel/panel.go
+index 62ce7d10..57a36f6a 100644
+--- a/internal/web/service/panel/panel.go
++++ b/internal/web/service/panel/panel.go
+@@ -7,7 +7,6 @@ import (
+ 	"io"
+ 	"net/http"
+ 	"os"
+-	"os/exec"
+ 	"path/filepath"
+ 	"regexp"
+ 	"runtime"
+@@ -182,14 +181,14 @@ func getDevUpdateInfo() (*PanelUpdateInfo, error) {
+ // setting. Returns the run ID to pass to GetUpdateStatus so the caller can
+ // tell this run's result apart from a stale one.
+ func (s *PanelService) StartUpdate() (int64, error) {
+-	return s.startUpdate(devChannelActive())
++	return 0, config.ErrBuiltinUpdatesDisabled
+ }
+ 
+ // StartUpdateChannel runs the updater against an explicitly chosen channel,
+ // overriding the local dev-channel setting. Used by the master node updater so
+ // a node can be moved to the dev channel from the central panel.
+ func (s *PanelService) StartUpdateChannel(dev bool) (int64, error) {
+-	return s.startUpdate(dev)
++	return 0, config.ErrBuiltinUpdatesDisabled
+ }
+ 
+ // GetUpdateStatus reports the outcome of the most recently launched panel
+@@ -213,97 +212,6 @@ func (s *PanelService) GetUpdateStatus() *PanelUpdateStatus {
+ 	return &status
+ }
+ 
+-func (s *PanelService) startUpdate(useDev bool) (int64, error) {
+-	runID := time.Now().UnixNano()
+-	if !acquireUpdateSlot(runID) {
+-		return 0, fmt.Errorf("a panel update is already in progress")
+-	}
+-	launched := false
+-	defer func() {
+-		if !launched {
+-			releaseUpdateSlot()
+-		}
+-	}()
+-
+-	if runtime.GOOS != "linux" {
+-		return 0, fmt.Errorf("panel web update is supported only on Linux installations")
+-	}
+-
+-	bash, err := exec.LookPath("bash")
+-	if err != nil {
+-		return 0, fmt.Errorf("bash is required to run the panel updater: %w", err)
+-	}
+-
+-	scriptPath, err := downloadPanelUpdater()
+-	if err != nil {
+-		return 0, err
+-	}
+-
+-	statusFile := config.GetUpdateStatusFilePath()
+-
+-	mainFolder, serviceFolder := resolveUpdateFolders()
+-	updateTag := ""
+-	if useDev {
+-		updateTag = devReleaseTag
+-	}
+-	updateScript := fmt.Sprintf("set -e; trap 'rm -f %s' EXIT; %s %s", shellQuote(scriptPath), shellQuote(bash), shellQuote(scriptPath))
+-	runIDEnv := "XUI_UPDATE_RUN_ID=" + strconv.FormatInt(runID, 10)
+-	statusFileEnv := "XUI_UPDATE_STATUS_FILE=" + statusFile
+-	proxyEnv := updateProxyEnvVars()
+-
+-	if systemdRun, err := exec.LookPath("systemd-run"); err == nil {
+-		unitName := fmt.Sprintf("x-ui-web-update-%d", time.Now().Unix())
+-		args := []string{
+-			"--unit", unitName,
+-			"--setenv", "XUI_MAIN_FOLDER=" + mainFolder,
+-			"--setenv", "XUI_SERVICE=" + serviceFolder,
+-			"--setenv", "XUI_UPDATE_TAG=" + updateTag,
+-			"--setenv", runIDEnv,
+-			"--setenv", statusFileEnv,
+-		}
+-		for _, kv := range proxyEnv {
+-			args = append(args, "--setenv", kv)
+-		}
+-		args = append(args, bash, "-lc", updateScript)
+-		cmd := exec.CommandContext(context.Background(), systemdRun, args...)
+-		out, err := cmd.CombinedOutput()
+-		if err != nil {
+-			output := strings.TrimSpace(string(out))
+-			if !strings.Contains(output, "System has not been booted with systemd") &&
+-				!strings.Contains(output, "Failed to connect to bus") {
+-				_ = os.Remove(scriptPath)
+-				return 0, fmt.Errorf("failed to start panel update job: %w: %s", err, output)
+-			}
+-			logger.Warning("systemd-run is unavailable, falling back to detached update process:", output)
+-		} else {
+-			logger.Infof("started panel update job via systemd-run unit %s", unitName)
+-			launched = true
+-			return runID, nil
+-		}
+-	}
+-
+-	cmd := exec.CommandContext(context.Background(), bash, "-lc", updateScript)
+-	cmd.Env = append(os.Environ(),
+-		"XUI_MAIN_FOLDER="+mainFolder,
+-		"XUI_SERVICE="+serviceFolder,
+-		"XUI_UPDATE_TAG="+updateTag,
+-		runIDEnv,
+-		statusFileEnv,
+-	)
+-	setDetachedProcess(cmd)
+-	if err := cmd.Start(); err != nil {
+-		_ = os.Remove(scriptPath)
+-		return 0, fmt.Errorf("failed to start panel update job: %w", err)
+-	}
+-	if err := cmd.Process.Release(); err != nil {
+-		logger.Warning("failed to release panel update process:", err)
+-	}
+-	logger.Infof("started panel update job with pid %d", cmd.Process.Pid)
+-	recordUpdatePID(cmd.Process.Pid)
+-	launched = true
+-	return runID, nil
+-}
+-
+ // updateProxyEnvVars forwards ambient proxy env vars to systemd-run's child,
+ // which (unlike the bash fallback) inherits nothing but --setenv.
+ func updateProxyEnvVars() []string {
+diff --git a/internal/web/service/server.go b/internal/web/service/server.go
+index caf106d5..d3d7a6f9 100644
+--- a/internal/web/service/server.go
++++ b/internal/web/service/server.go
+@@ -1,7 +1,6 @@
+ package service
+ 
+ import (
+-	"archive/zip"
+ 	"bufio"
+ 	"bytes"
+ 	"cmp"
+@@ -14,7 +13,6 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"io"
+-	"maps"
+ 	"math"
+ 	"mime/multipart"
+ 	stdnet "net"
+@@ -1085,104 +1083,7 @@ func parseXrayDigestSHA256(dgst []byte) (string, error) {
+ }
+ 
+ func (s *ServerService) UpdateXray(version string) error {
+-	versions, err := s.GetXrayVersions()
+-	if err != nil {
+-		return err
+-	}
+-	if !slices.Contains(versions, version) {
+-		return fmt.Errorf("xray version %q is not in the fetched release list", version)
+-	}
+-
+-	// 1. Stop xray before doing anything
+-	if err := s.StopXrayService(); err != nil {
+-		logger.Warning("failed to stop xray before update:", err)
+-	}
+-
+-	// 2. Download the zip
+-	zipFileName, err := s.downloadXRay(version)
+-	if err != nil {
+-		return err
+-	}
+-	defer os.Remove(zipFileName)
+-
+-	zipFile, err := os.Open(zipFileName)
+-	if err != nil {
+-		return err
+-	}
+-	defer zipFile.Close()
+-
+-	stat, err := zipFile.Stat()
+-	if err != nil {
+-		return err
+-	}
+-	reader, err := zip.NewReader(zipFile, stat.Size())
+-	if err != nil {
+-		return err
+-	}
+-
+-	// 3. Helper to extract files
+-	copyZipFile := func(zipName string, fileName string) error {
+-		zipFile, err := reader.Open(zipName)
+-		if err != nil {
+-			return err
+-		}
+-		defer zipFile.Close()
+-		if err := os.MkdirAll(filepath.Dir(fileName), 0o755); err != nil {
+-			return err
+-		}
+-		tmpFile, err := os.CreateTemp(filepath.Dir(fileName), ".xray-*")
+-		if err != nil {
+-			return err
+-		}
+-		tmpPath := tmpFile.Name()
+-		ok := false
+-		defer func() {
+-			_ = tmpFile.Close()
+-			if !ok {
+-				_ = os.Remove(tmpPath)
+-			}
+-		}()
+-		n, err := io.Copy(tmpFile, io.LimitReader(zipFile, maxXrayBinaryBytes+1))
+-		if err != nil {
+-			return err
+-		}
+-		if n > maxXrayBinaryBytes {
+-			return fmt.Errorf("xray binary exceeds %d bytes", maxXrayBinaryBytes)
+-		}
+-		if err := tmpFile.Chmod(0o755); err != nil {
+-			return err
+-		}
+-		if err := tmpFile.Close(); err != nil {
+-			return err
+-		}
+-		if runtime.GOOS == "windows" {
+-			_ = os.Remove(fileName)
+-		}
+-		if err := os.Rename(tmpPath, fileName); err != nil {
+-			return err
+-		}
+-		ok = true
+-		return nil
+-	}
+-
+-	// 4. Extract correct binary
+-	if runtime.GOOS == "windows" {
+-		targetBinary := filepath.Join(config.GetBinFolderPath(), "xray-windows-amd64.exe")
+-		err = copyZipFile("xray.exe", targetBinary)
+-	} else {
+-		err = copyZipFile("xray", xray.GetBinaryPath())
+-	}
+-	if err != nil {
+-		return err
+-	}
+-
+-	// 5. Restart xray
+-	if err := s.xrayService.RestartXray(true); err != nil {
+-		logger.Error("start xray failed:", err)
+-		return err
+-	}
+-
+-	return nil
++	return config.ErrBuiltinUpdatesDisabled
+ }
+ 
+ // syslogTimeout keeps a stalled journalctl from hanging the Syslog request (#6629).
+@@ -2306,68 +2207,7 @@ type stagedGeofile struct {
+ var restartXrayAfterGeofileUpdate = (*ServerService).RestartXrayService
+ 
+ func (s *ServerService) UpdateGeofile(fileName string) error {
+-	// Strict allowlist check to avoid writing uncontrolled files
+-	if fileName != "" {
+-		if _, ok := geofileAllowlist[fileName]; !ok {
+-			return common.NewErrorf("Invalid geofile name: %q not in allowlist", fileName)
+-		}
+-	}
+-
+-	wanted := geofileAllowlist
+-	if fileName != "" {
+-		wanted = map[string]geofileEntry{fileName: geofileAllowlist[fileName]}
+-	}
+-
+-	// Atomic per upstream, not across all six: one release's databases belong
+-	// together, but a failing repo must not discard another repo's good files.
+-	byRepo := make(map[string][]geofileEntry, len(wanted))
+-	for _, entry := range wanted {
+-		byRepo[entry.Repo] = append(byRepo[entry.Repo], entry)
+-	}
+-	repos := slices.Sorted(maps.Keys(byRepo))
+-
+-	binFolder := config.GetBinFolderPath()
+-	stageDir, err := os.MkdirTemp(binFolder, "geofile-")
+-	if err != nil {
+-		return common.NewErrorf("Failed to create staging folder for Geofiles: %v", err)
+-	}
+-	defer os.RemoveAll(stageDir)
+-
+-	client := s.settingService.NewProxiedHTTPClient(0)
+-
+-	var errorMessages []string
+-	installed := 0
+-	for _, repo := range repos {
+-		entries := byRepo[repo]
+-		slices.SortFunc(entries, func(a, b geofileEntry) int { return strings.Compare(a.FileName, b.FileName) })
+-
+-		staged, err := s.stageGeofileRelease(client, entries, binFolder, stageDir)
+-		if err != nil {
+-			errorMessages = append(errorMessages, err.Error())
+-			continue
+-		}
+-		for _, file := range staged {
+-			if err := os.Rename(file.stagePath, file.destPath); err != nil {
+-				errorMessages = append(errorMessages, fmt.Sprintf("Failed to install Geofile %s: %v", file.destPath, err))
+-				continue
+-			}
+-			installed++
+-		}
+-	}
+-
+-	// Nothing changed, so there is no reason to restart the core and drop every
+-	// client connection.
+-	if installed > 0 {
+-		if err := restartXrayAfterGeofileUpdate(s); err != nil {
+-			errorMessages = append(errorMessages, fmt.Sprintf("Updated Geofiles but Failed to start Xray: %v", err))
+-		}
+-	}
+-
+-	if len(errorMessages) > 0 {
+-		return common.NewErrorf("%s", strings.Join(errorMessages, "\r\n"))
+-	}
+-
+-	return nil
++	return config.ErrBuiltinUpdatesDisabled
+ }
+ 
+ // stageGeofileRelease downloads one upstream's databases and verifies each
+diff --git a/internal/web/service/server_geofile_test.go b/internal/web/service/server_geofile_test.go
+index 2b58778c..00a8c19c 100644
+--- a/internal/web/service/server_geofile_test.go
++++ b/internal/web/service/server_geofile_test.go
+@@ -6,7 +6,6 @@ import (
+ 	"fmt"
+ 	"net/http"
+ 	"net/http/httptest"
+-	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"sync"
+@@ -163,233 +162,6 @@ func restartStub(t *testing.T, called *bool) {
+ 	t.Cleanup(func() { restartXrayAfterGeofileUpdate = original })
+ }
+ 
+-func TestUpdateGeofileInstallsVerifiedFile(t *testing.T) {
+-	srv, _ := geofileServer(t, []fakeUpstream{{repo: "a", assets: map[string]string{"geoip.dat": "good geoip payload"}}})
+-	binFolder := geofileTestEnv(t, map[string]geofileEntry{
+-		"geoip.dat": {srv.URL + "/a", "geoip.dat", "geoip.dat"},
+-	})
+-
+-	var restarted bool
+-	restartStub(t, &restarted)
+-
+-	if err := (&ServerService{}).UpdateGeofile(""); err != nil {
+-		t.Fatalf("UpdateGeofile: %v", err)
+-	}
+-
+-	got, err := os.ReadFile(filepath.Join(binFolder, "geoip.dat"))
+-	if err != nil {
+-		t.Fatalf("read installed geofile: %v", err)
+-	}
+-	if string(got) != "good geoip payload" {
+-		t.Fatalf("installed content = %q, want %q", got, "good geoip payload")
+-	}
+-	if !restarted {
+-		t.Fatal("a file was installed, so xray should have been restarted")
+-	}
+-}
+-
+-func TestUpdateGeofileRejectsDigestMismatch(t *testing.T) {
+-	srv, _ := geofileServer(t, []fakeUpstream{{
+-		repo:    "a",
+-		assets:  map[string]string{"geoip.dat": "good geoip payload"},
+-		corrupt: map[string]bool{"geoip.dat": true},
+-	}})
+-	binFolder := geofileTestEnv(t, map[string]geofileEntry{
+-		"geoip.dat": {srv.URL + "/a", "geoip.dat", "geoip.dat"},
+-	})
+-
+-	var restarted bool
+-	restartStub(t, &restarted)
+-
+-	err := (&ServerService{}).UpdateGeofile("")
+-	if err == nil {
+-		t.Fatal("expected an error when the download does not match its published digest")
+-	}
+-	if !strings.Contains(err.Error(), "does not match the published SHA-256 checksum") {
+-		t.Fatalf("error = %q, want it to name the checksum mismatch", err)
+-	}
+-
+-	if _, statErr := os.Stat(filepath.Join(binFolder, "geoip.dat")); !os.IsNotExist(statErr) {
+-		t.Fatalf("a file failing verification must not be installed (stat: %v)", statErr)
+-	}
+-	if restarted {
+-		t.Fatal("nothing was installed, so xray must not be restarted")
+-	}
+-}
+-
+-// Within one upstream the pair installs together. geoip sorts before geosite
+-// and is staged first, so a trivially-passing "abort before download" is ruled out.
+-func TestUpdateGeofileInstallsNeitherFileOfAFailedUpstream(t *testing.T) {
+-	srv, hits := geofileServer(t, []fakeUpstream{{
+-		repo:    "a",
+-		assets:  map[string]string{"geoip.dat": "good geoip", "geosite.dat": "good geosite"},
+-		corrupt: map[string]bool{"geosite.dat": true},
+-	}})
+-	binFolder := geofileTestEnv(t, map[string]geofileEntry{
+-		"geoip.dat":   {srv.URL + "/a", "geoip.dat", "geoip.dat"},
+-		"geosite.dat": {srv.URL + "/a", "geosite.dat", "geosite.dat"},
+-	})
+-
+-	var restarted bool
+-	restartStub(t, &restarted)
+-
+-	if err := (&ServerService{}).UpdateGeofile(""); err == nil {
+-		t.Fatal("expected an error when one of the databases fails verification")
+-	}
+-
+-	if _, ok := hits.Load("body:a/geoip.dat"); !ok {
+-		t.Fatal("geoip.dat was never downloaded, so this run never exercised staging")
+-	}
+-	for _, name := range []string{"geoip.dat", "geosite.dat"} {
+-		if _, statErr := os.Stat(filepath.Join(binFolder, name)); !os.IsNotExist(statErr) {
+-			t.Fatalf("%s was installed even though its sibling failed verification", name)
+-		}
+-	}
+-	if restarted {
+-		t.Fatal("nothing was installed, so xray must not be restarted")
+-	}
+-}
+-
+-// A broken upstream must not discard a healthy one's verified download.
+-func TestUpdateGeofileKeepsGoodUpstreamWhenAnotherFails(t *testing.T) {
+-	srv, _ := geofileServer(t, []fakeUpstream{
+-		{repo: "aaa", assets: map[string]string{"geoip.dat": "healthy payload"}},
+-		{
+-			repo:    "zzz",
+-			assets:  map[string]string{"geoip.dat": "broken payload"},
+-			corrupt: map[string]bool{"geoip.dat": true},
+-		},
+-	})
+-	binFolder := geofileTestEnv(t, map[string]geofileEntry{
+-		"geoip.dat":    {srv.URL + "/aaa", "geoip.dat", "geoip.dat"},
+-		"geoip_RU.dat": {srv.URL + "/zzz", "geoip.dat", "geoip_RU.dat"},
+-	})
+-
+-	var restarted bool
+-	restartStub(t, &restarted)
+-
+-	err := (&ServerService{}).UpdateGeofile("")
+-	if err == nil {
+-		t.Fatal("expected an error naming the failing upstream")
+-	}
+-	if !strings.Contains(err.Error(), "geoip_RU.dat") {
+-		t.Fatalf("error = %q, want it to name geoip_RU.dat", err)
+-	}
+-
+-	got, readErr := os.ReadFile(filepath.Join(binFolder, "geoip.dat"))
+-	if readErr != nil {
+-		t.Fatalf("the healthy upstream's file must still be installed: %v", readErr)
+-	}
+-	if string(got) != "healthy payload" {
+-		t.Fatalf("installed content = %q, want %q", got, "healthy payload")
+-	}
+-	if _, statErr := os.Stat(filepath.Join(binFolder, "geoip_RU.dat")); !os.IsNotExist(statErr) {
+-		t.Fatal("the failing upstream's file must not be installed")
+-	}
+-	if !restarted {
+-		t.Fatal("a file was installed, so xray should have been restarted")
+-	}
+-}
+-
+-// The upstreams publish several times a day. Once `latest` is resolved, the
+-// asset and its digest must both come from that release, not from a newer one.
+-func TestUpdateGeofileSurvivesReleaseRotation(t *testing.T) {
+-	const oldBody = "release one payload"
+-	oldSum := sha256.Sum256([]byte(oldBody))
+-	newSum := sha256.Sum256([]byte("release two payload"))
+-
+-	mux := http.NewServeMux()
+-	mux.HandleFunc("/a/releases/latest/download/geoip.dat", func(w http.ResponseWriter, r *http.Request) {
+-		http.Redirect(w, r, "/a/releases/download/v1/geoip.dat", http.StatusFound)
+-	})
+-	mux.HandleFunc("/a/releases/download/v1/geoip.dat", func(w http.ResponseWriter, r *http.Request) {
+-		_, _ = w.Write([]byte(oldBody))
+-	})
+-	mux.HandleFunc("/a/releases/download/v1/geoip.dat.sha256sum", func(w http.ResponseWriter, r *http.Request) {
+-		_, _ = w.Write(fmt.Appendf(nil, "%s  geoip.dat\n", hex.EncodeToString(oldSum[:])))
+-	})
+-	// "latest" has already moved on to v2. Anything still resolving it gets a
+-	// digest for bytes we never downloaded.
+-	mux.HandleFunc("/a/releases/latest/download/geoip.dat.sha256sum", func(w http.ResponseWriter, r *http.Request) {
+-		_, _ = w.Write(fmt.Appendf(nil, "%s  geoip.dat\n", hex.EncodeToString(newSum[:])))
+-	})
+-	srv := httptest.NewServer(mux)
+-	t.Cleanup(srv.Close)
+-
+-	binFolder := geofileTestEnv(t, map[string]geofileEntry{
+-		"geoip.dat": {srv.URL + "/a", "geoip.dat", "geoip.dat"},
+-	})
+-
+-	var restarted bool
+-	restartStub(t, &restarted)
+-
+-	if err := (&ServerService{}).UpdateGeofile(""); err != nil {
+-		t.Fatalf("a release landing mid-batch must not look like tampering: %v", err)
+-	}
+-	if got, err := os.ReadFile(filepath.Join(binFolder, "geoip.dat")); err != nil || string(got) != oldBody {
+-		t.Fatalf("installed = %q (err %v), want the pinned release's bytes", got, err)
+-	}
+-}
+-
+-func TestUpdateGeofileSkipsRestartWhenNotModified(t *testing.T) {
+-	mux := http.NewServeMux()
+-	mux.HandleFunc("/a/releases/latest/download/geoip.dat", func(w http.ResponseWriter, r *http.Request) {
+-		http.Redirect(w, r, "/a/releases/download/v1/geoip.dat", http.StatusFound)
+-	})
+-	mux.HandleFunc("/a/releases/download/v1/geoip.dat", func(w http.ResponseWriter, r *http.Request) {
+-		if r.Header.Get("If-Modified-Since") == "" {
+-			t.Errorf("expected a conditional GET carrying If-Modified-Since")
+-		}
+-		w.WriteHeader(http.StatusNotModified)
+-	})
+-	mux.HandleFunc("/a/releases/download/v1/geoip.dat.sha256sum", func(w http.ResponseWriter, r *http.Request) {
+-		t.Error("the sidecar must not be fetched when the asset is unchanged")
+-	})
+-	srv := httptest.NewServer(mux)
+-	t.Cleanup(srv.Close)
+-
+-	binFolder := geofileTestEnv(t, map[string]geofileEntry{
+-		"geoip.dat": {srv.URL + "/a", "geoip.dat", "geoip.dat"},
+-	})
+-
+-	existing := filepath.Join(binFolder, "geoip.dat")
+-	if err := os.WriteFile(existing, []byte("already current"), 0o644); err != nil {
+-		t.Fatalf("seed existing geofile: %v", err)
+-	}
+-
+-	var restarted bool
+-	restartStub(t, &restarted)
+-
+-	if err := (&ServerService{}).UpdateGeofile(""); err != nil {
+-		t.Fatalf("UpdateGeofile: %v", err)
+-	}
+-
+-	if restarted {
+-		t.Fatal("a 304 from every upstream must not restart xray and drop client connections")
+-	}
+-	got, err := os.ReadFile(existing)
+-	if err != nil {
+-		t.Fatalf("read existing geofile: %v", err)
+-	}
+-	if string(got) != "already current" {
+-		t.Fatalf("existing content = %q, want it left alone", got)
+-	}
+-}
+-
+-func TestUpdateGeofileRejectsNameOutsideAllowlist(t *testing.T) {
+-	geofileTestEnv(t, map[string]geofileEntry{
+-		"geoip.dat": {"https://example.invalid", "geoip.dat", "geoip.dat"},
+-	})
+-
+-	err := (&ServerService{}).UpdateGeofile("../../etc/passwd")
+-	if err == nil {
+-		t.Fatal("expected an error for a name outside the allowlist")
+-	}
+-	if !strings.Contains(err.Error(), "not in allowlist") {
+-		t.Fatalf("error = %q, want it to name the allowlist", err)
+-	}
+-}
+-
+ func TestStandardGeodataSources(t *testing.T) {
+ 	want := []GeodataSource{
+ 		{URL: "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat", File: "geoip.dat"},
+diff --git a/internal/web/service/setting.go b/internal/web/service/setting.go
+index a2b02b02..fc39085c 100644
+--- a/internal/web/service/setting.go
++++ b/internal/web/service/setting.go
+@@ -1328,7 +1328,7 @@ func (s *SettingService) GetDevChannelEnable() (bool, error) {
+ }
+ 
+ func (s *SettingService) SetDevChannelEnable(value bool) error {
+-	return s.setBool("devChannelEnable", value)
++	return config.ErrBuiltinUpdatesDisabled
+ }
+ 
+ // GetIpLimitEnable reports whether the IP-limit feature is available. Always
+diff --git a/internal/web/service/xray.go b/internal/web/service/xray.go
+index d235f936..35e9de26 100644
+--- a/internal/web/service/xray.go
++++ b/internal/web/service/xray.go
+@@ -176,6 +176,9 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	// Existing/restored templates must not reactivate Xray's native downloader.
++	// Keep the stored template intact and keep normal restarts/hot applies usable.
++	xrayConfig.Geodata = nil
+ 	xrayConfig.LogConfig = resolveXrayLogPaths(xrayConfig.LogConfig)
+ 	xrayConfig.API = ensureAPIServices(xrayConfig.API)
+ 	xrayConfig.Policy = ensureStatsPolicy(xrayConfig.Policy)
+diff --git a/internal/web/service/xray_setting.go b/internal/web/service/xray_setting.go
+index eba12c78..2308729f 100644
+--- a/internal/web/service/xray_setting.go
++++ b/internal/web/service/xray_setting.go
+@@ -9,6 +9,7 @@ import (
+ 	"strings"
+ 
+ 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawg"
++	"github.com/mhsanaei/3x-ui/v3/internal/config"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/database"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
+ 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
+@@ -53,6 +54,19 @@ func (s *XraySettingService) CheckXrayConfig(XrayTemplateConfig string) error {
+ 	if err != nil {
+ 		return common.NewError("xray template config invalid:", err)
+ 	}
++	// Xray's native geodata downloader bypasses UpdateGeofile. Reject active
++	// sources even when submitted through the raw template editor or a node API.
++	if len(xrayConfig.Geodata) > 0 && string(xrayConfig.Geodata) != "null" {
++		var geodata struct {
++			Assets []json.RawMessage `json:"assets"`
++		}
++		if err := json.Unmarshal(xrayConfig.Geodata, &geodata); err != nil {
++			return config.ErrBuiltinUpdatesDisabled
++		}
++		if len(geodata.Assets) > 0 {
++			return config.ErrBuiltinUpdatesDisabled
++		}
++	}
+ 	for _, inbound := range xrayConfig.InboundConfigs {
+ 		if err := validateFinalMaskSalamander(string(inbound.StreamSettings)); err != nil {
+ 			return common.NewError("xray template inbound \""+inbound.Tag+"\":", err)
+diff --git a/internal/web/translation/en-US.json b/internal/web/translation/en-US.json
+index 2ceb3b54..0b5f2fba 100644
+--- a/internal/web/translation/en-US.json
++++ b/internal/web/translation/en-US.json
+@@ -228,6 +228,7 @@
+       "geofilesUpdateDialogDesc": "This will update all geofiles.",
+       "geofilesUpdateAll": "Update all",
+       "geofileUpdatePopover": "Geofile updated successfully",
++      "managedUpdatesNotice": "Built-in panel, node, Xray and Geo updates are disabled. Updates are managed through the pinned operations workflow.",
+       "geodataTitle": "Geodata Auto-Update",
+       "geodataHint": "Xray downloads these files on schedule and hot-reloads them without a restart. URLs must be HTTPS. Each file must already exist in the bin folder once before Xray can update it.",
+       "geodataCron": "Schedule (cron)",
+diff --git a/internal/web/translation/zh-CN.json b/internal/web/translation/zh-CN.json
+index c26aa4ca..3fd3561c 100644
+--- a/internal/web/translation/zh-CN.json
++++ b/internal/web/translation/zh-CN.json
+@@ -228,6 +228,7 @@
+       "geofilesUpdateDialogDesc": "这将更新所有文件。",
+       "geofilesUpdateAll": "全部更新",
+       "geofileUpdatePopover": "地理文件更新成功",
++      "managedUpdatesNotice": "面板、节点、Xray 和 Geo 规则的内置更新已关闭，请通过运维固定入口更新。",
+       "geodataTitle": "Geodata 自动更新",
+       "geodataHint": "Xray 会按计划下载这些文件并热重载，无需重启。URL 必须为 HTTPS。文件必须已存在于 bin 目录中，Xray 才能对其更新。",
+       "geodataCron": "更新计划 (cron)",

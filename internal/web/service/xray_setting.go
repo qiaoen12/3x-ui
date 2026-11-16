@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawg"
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
@@ -52,6 +53,19 @@ func (s *XraySettingService) CheckXrayConfig(XrayTemplateConfig string) error {
 	err := json.Unmarshal([]byte(XrayTemplateConfig), xrayConfig)
 	if err != nil {
 		return common.NewError("xray template config invalid:", err)
+	}
+	// Xray's native geodata downloader bypasses UpdateGeofile. Reject active
+	// sources even when submitted through the raw template editor or a node API.
+	if len(xrayConfig.Geodata) > 0 && string(xrayConfig.Geodata) != "null" {
+		var geodata struct {
+			Assets []json.RawMessage `json:"assets"`
+		}
+		if err := json.Unmarshal(xrayConfig.Geodata, &geodata); err != nil {
+			return config.ErrBuiltinUpdatesDisabled
+		}
+		if len(geodata.Assets) > 0 {
+			return config.ErrBuiltinUpdatesDisabled
+		}
 	}
 	for _, inbound := range xrayConfig.InboundConfigs {
 		if err := validateFinalMaskSalamander(string(inbound.StreamSettings)); err != nil {

@@ -228,6 +228,7 @@
       "geofilesUpdateDialogDesc": "This will update all geofiles.",
       "geofilesUpdateAll": "Update all",
       "geofileUpdatePopover": "Geofile updated successfully",
+      "managedUpdatesNotice": "Built-in panel, node, Xray and Geo updates are disabled. Updates are managed through the pinned operations workflow.",
       "geodataTitle": "Geodata Auto-Update",
       "geodataHint": "Xray downloads these files on schedule and hot-reloads them without a restart. URLs must be HTTPS. Each file must already exist in the bin folder once before Xray can update it.",
       "geodataCron": "Schedule (cron)",

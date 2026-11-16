@@ -228,6 +228,7 @@
       "geofilesUpdateDialogDesc": "这将更新所有文件。",
       "geofilesUpdateAll": "全部更新",
       "geofileUpdatePopover": "地理文件更新成功",
+      "managedUpdatesNotice": "面板、节点、Xray 和 Geo 规则的内置更新已关闭，请通过运维固定入口更新。",
       "geodataTitle": "Geodata 自动更新",
       "geodataHint": "Xray 会按计划下载这些文件并热重载，无需重启。URL 必须为 HTTPS。文件必须已存在于 bin 目录中，Xray 才能对其更新。",
       "geodataCron": "更新计划 (cron)",

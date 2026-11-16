@@ -1,7 +1,6 @@
 package service
 
 import (
-	"archive/zip"
 	"bufio"
 	"bytes"
 	"cmp"
@@ -14,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 	"mime/multipart"
 	stdnet "net"
@@ -1085,104 +1083,7 @@ func parseXrayDigestSHA256(dgst []byte) (string, error) {
 }
 
 func (s *ServerService) UpdateXray(version string) error {
-	versions, err := s.GetXrayVersions()
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(versions, version) {
-		return fmt.Errorf("xray version %q is not in the fetched release list", version)
-	}
-
-	// 1. Stop xray before doing anything
-	if err := s.StopXrayService(); err != nil {
-		logger.Warning("failed to stop xray before update:", err)
-	}
-
-	// 2. Download the zip
-	zipFileName, err := s.downloadXRay(version)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(zipFileName)
-
-	zipFile, err := os.Open(zipFileName)
-	if err != nil {
-		return err
-	}
-	defer zipFile.Close()
-
-	stat, err := zipFile.Stat()
-	if err != nil {
-		return err
-	}
-	reader, err := zip.NewReader(zipFile, stat.Size())
-	if err != nil {
-		return err
-	}
-
-	// 3. Helper to extract files
-	copyZipFile := func(zipName string, fileName string) error {
-		zipFile, err := reader.Open(zipName)
-		if err != nil {
-			return err
-		}
-		defer zipFile.Close()
-		if err := os.MkdirAll(filepath.Dir(fileName), 0o755); err != nil {
-			return err
-		}
-		tmpFile, err := os.CreateTemp(filepath.Dir(fileName), ".xray-*")
-		if err != nil {
-			return err
-		}
-		tmpPath := tmpFile.Name()
-		ok := false
-		defer func() {
-			_ = tmpFile.Close()
-			if !ok {
-				_ = os.Remove(tmpPath)
-			}
-		}()
-		n, err := io.Copy(tmpFile, io.LimitReader(zipFile, maxXrayBinaryBytes+1))
-		if err != nil {
-			return err
-		}
-		if n > maxXrayBinaryBytes {
-			return fmt.Errorf("xray binary exceeds %d bytes", maxXrayBinaryBytes)
-		}
-		if err := tmpFile.Chmod(0o755); err != nil {
-			return err
-		}
-		if err := tmpFile.Close(); err != nil {
-			return err
-		}
-		if runtime.GOOS == "windows" {
-			_ = os.Remove(fileName)
-		}
-		if err := os.Rename(tmpPath, fileName); err != nil {
-			return err
-		}
-		ok = true
-		return nil
-	}
-
-	// 4. Extract correct binary
-	if runtime.GOOS == "windows" {
-		targetBinary := filepath.Join(config.GetBinFolderPath(), "xray-windows-amd64.exe")
-		err = copyZipFile("xray.exe", targetBinary)
-	} else {
-		err = copyZipFile("xray", xray.GetBinaryPath())
-	}
-	if err != nil {
-		return err
-	}
-
-	// 5. Restart xray
-	if err := s.xrayService.RestartXray(true); err != nil {
-		logger.Error("start xray failed:", err)
-		return err
-	}
-
-	return nil
+	return config.ErrBuiltinUpdatesDisabled
 }
 
 // syslogTimeout keeps a stalled journalctl from hanging the Syslog request (#6629).
@@ -2306,68 +2207,7 @@ type stagedGeofile struct {
 var restartXrayAfterGeofileUpdate = (*ServerService).RestartXrayService
 
 func (s *ServerService) UpdateGeofile(fileName string) error {
-	// Strict allowlist check to avoid writing uncontrolled files
-	if fileName != "" {
-		if _, ok := geofileAllowlist[fileName]; !ok {
-			return common.NewErrorf("Invalid geofile name: %q not in allowlist", fileName)
-		}
-	}
-
-	wanted := geofileAllowlist
-	if fileName != "" {
-		wanted = map[string]geofileEntry{fileName: geofileAllowlist[fileName]}
-	}
-
-	// Atomic per upstream, not across all six: one release's databases belong
-	// together, but a failing repo must not discard another repo's good files.
-	byRepo := make(map[string][]geofileEntry, len(wanted))
-	for _, entry := range wanted {
-		byRepo[entry.Repo] = append(byRepo[entry.Repo], entry)
-	}
-	repos := slices.Sorted(maps.Keys(byRepo))
-
-	binFolder := config.GetBinFolderPath()
-	stageDir, err := os.MkdirTemp(binFolder, "geofile-")
-	if err != nil {
-		return common.NewErrorf("Failed to create staging folder for Geofiles: %v", err)
-	}
-	defer os.RemoveAll(stageDir)
-
-	client := s.settingService.NewProxiedHTTPClient(0)
-
-	var errorMessages []string
-	installed := 0
-	for _, repo := range repos {
-		entries := byRepo[repo]
-		slices.SortFunc(entries, func(a, b geofileEntry) int { return strings.Compare(a.FileName, b.FileName) })
-
-		staged, err := s.stageGeofileRelease(client, entries, binFolder, stageDir)
-		if err != nil {
-			errorMessages = append(errorMessages, err.Error())
-			continue
-		}
-		for _, file := range staged {
-			if err := os.Rename(file.stagePath, file.destPath); err != nil {
-				errorMessages = append(errorMessages, fmt.Sprintf("Failed to install Geofile %s: %v", file.destPath, err))
-				continue
-			}
-			installed++
-		}
-	}
-
-	// Nothing changed, so there is no reason to restart the core and drop every
-	// client connection.
-	if installed > 0 {
-		if err := restartXrayAfterGeofileUpdate(s); err != nil {
-			errorMessages = append(errorMessages, fmt.Sprintf("Updated Geofiles but Failed to start Xray: %v", err))
-		}
-	}
-
-	if len(errorMessages) > 0 {
-		return common.NewErrorf("%s", strings.Join(errorMessages, "\r\n"))
-	}
-
-	return nil
+	return config.ErrBuiltinUpdatesDisabled
 }
 
 // stageGeofileRelease downloads one upstream's databases and verifies each

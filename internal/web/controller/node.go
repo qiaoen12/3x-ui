@@ -40,7 +40,7 @@ func (a *NodeController) initRouter(g *gin.RouterGroup) {
 	g.POST("/certFingerprint", a.certFingerprint)
 	g.POST("/inbounds", a.inbounds)
 	g.POST("/probe/:id", a.probe)
-	g.POST("/updatePanel", a.updatePanel)
+	g.POST("/updatePanel", rejectBuiltinUpdate)
 	g.GET("/history/:id/:metric/:bucket", a.history)
 	g.POST("/mtls/ca", a.mtlsCa)
 	g.POST("/mtls/trustCA", a.setMtlsTrustCA)

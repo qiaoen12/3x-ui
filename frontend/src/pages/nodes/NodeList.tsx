@@ -22,6 +22,7 @@ import {
 } from '@ant-design/icons';
 
 import NodeHistoryPanel from './NodeHistoryPanel';
+import ManagedUpdatesNotice from '../index/ManagedUpdatesNotice';
 import type { NodeRecord } from '@/api/queries/useNodesQuery';
 import { isPanelUpdateAvailable } from '@/lib/panel-version';
 import { activateOnKey } from '@/utils/a11y';
@@ -269,13 +270,14 @@ export default function NodeList({
                 />
               </Tooltip>
               {isUpdateEligible(record) && (
-                <Tooltip title={t('pages.nodes.updatePanel')}>
+                <Tooltip title={t('pages.index.managedUpdatesNotice')}>
                   <Button
                     type="text"
                     size="small"
                     style={{ fontSize: 16 }}
                     icon={<CloudDownloadOutlined />}
                     aria-label={t('pages.nodes.updatePanel')}
+                    disabled
                     onClick={() => onUpdateNode(record)}
                   />
                 </Tooltip>
@@ -430,15 +432,8 @@ export default function NodeList({
             <Space size={4}>
               <span>{record.panelVersion || '-'}</span>
               {canUpdate && (
-                <Tooltip title={`${t('pages.nodes.updateAvailable')}: ${latestVersion}`}>
-                  <Tag
-                    color="orange"
-                    style={{ margin: 0, cursor: 'pointer' }}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onUpdateNode(record)}
-                    onKeyDown={activateOnKey(() => onUpdateNode(record))}
-                  >
+                <Tooltip title={t('pages.index.managedUpdatesNotice')}>
+                  <Tag color="orange" style={{ margin: 0 }}>
                     {t('pages.nodes.updateAvailable')}
                   </Tag>
                 </Tooltip>
@@ -578,6 +573,7 @@ export default function NodeList({
 
   return (
     <Card size="small" hoverable>
+      <ManagedUpdatesNotice />
       <div className="toolbar">
         <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>
           {t('pages.nodes.addNode')}
@@ -586,7 +582,12 @@ export default function NodeList({
           {t('pages.nodes.mtls.title')}
         </Button>
         {selectedIds.length > 0 && (
-          <Button icon={<CloudDownloadOutlined />} onClick={onUpdateSelected}>
+          <Button
+            disabled
+            title={t('pages.index.managedUpdatesNotice')}
+            icon={<CloudDownloadOutlined />}
+            onClick={onUpdateSelected}
+          >
             {t('pages.nodes.updateSelected', { count: selectedIds.length })}
           </Button>
         )}
@@ -673,6 +674,7 @@ export default function NodeList({
                                 ? [
                                     {
                                       key: 'update',
+                                      disabled: true,
                                       label: (
                                         <>
                                           <CloudDownloadOutlined /> {t('pages.nodes.updatePanel')}

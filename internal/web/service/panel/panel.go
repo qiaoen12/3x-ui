@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -182,14 +181,14 @@ func getDevUpdateInfo() (*PanelUpdateInfo, error) {
 // setting. Returns the run ID to pass to GetUpdateStatus so the caller can
 // tell this run's result apart from a stale one.
 func (s *PanelService) StartUpdate() (int64, error) {
-	return s.startUpdate(devChannelActive())
+	return 0, config.ErrBuiltinUpdatesDisabled
 }
 
 // StartUpdateChannel runs the updater against an explicitly chosen channel,
 // overriding the local dev-channel setting. Used by the master node updater so
 // a node can be moved to the dev channel from the central panel.
 func (s *PanelService) StartUpdateChannel(dev bool) (int64, error) {
-	return s.startUpdate(dev)
+	return 0, config.ErrBuiltinUpdatesDisabled
 }
 
 // GetUpdateStatus reports the outcome of the most recently launched panel
@@ -211,97 +210,6 @@ func (s *PanelService) GetUpdateStatus() *PanelUpdateStatus {
 		status.State = updateStatePending
 	}
 	return &status
-}
-
-func (s *PanelService) startUpdate(useDev bool) (int64, error) {
-	runID := time.Now().UnixNano()
-	if !acquireUpdateSlot(runID) {
-		return 0, fmt.Errorf("a panel update is already in progress")
-	}
-	launched := false
-	defer func() {
-		if !launched {
-			releaseUpdateSlot()
-		}
-	}()
-
-	if runtime.GOOS != "linux" {
-		return 0, fmt.Errorf("panel web update is supported only on Linux installations")
-	}
-
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		return 0, fmt.Errorf("bash is required to run the panel updater: %w", err)
-	}
-
-	scriptPath, err := downloadPanelUpdater()
-	if err != nil {
-		return 0, err
-	}
-
-	statusFile := config.GetUpdateStatusFilePath()
-
-	mainFolder, serviceFolder := resolveUpdateFolders()
-	updateTag := ""
-	if useDev {
-		updateTag = devReleaseTag
-	}
-	updateScript := fmt.Sprintf("set -e; trap 'rm -f %s' EXIT; %s %s", shellQuote(scriptPath), shellQuote(bash), shellQuote(scriptPath))
-	runIDEnv := "XUI_UPDATE_RUN_ID=" + strconv.FormatInt(runID, 10)
-	statusFileEnv := "XUI_UPDATE_STATUS_FILE=" + statusFile
-	proxyEnv := updateProxyEnvVars()
-
-	if systemdRun, err := exec.LookPath("systemd-run"); err == nil {
-		unitName := fmt.Sprintf("x-ui-web-update-%d", time.Now().Unix())
-		args := []string{
-			"--unit", unitName,
-			"--setenv", "XUI_MAIN_FOLDER=" + mainFolder,
-			"--setenv", "XUI_SERVICE=" + serviceFolder,
-			"--setenv", "XUI_UPDATE_TAG=" + updateTag,
-			"--setenv", runIDEnv,
-			"--setenv", statusFileEnv,
-		}
-		for _, kv := range proxyEnv {
-			args = append(args, "--setenv", kv)
-		}
-		args = append(args, bash, "-lc", updateScript)
-		cmd := exec.CommandContext(context.Background(), systemdRun, args...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			output := strings.TrimSpace(string(out))
-			if !strings.Contains(output, "System has not been booted with systemd") &&
-				!strings.Contains(output, "Failed to connect to bus") {
-				_ = os.Remove(scriptPath)
-				return 0, fmt.Errorf("failed to start panel update job: %w: %s", err, output)
-			}
-			logger.Warning("systemd-run is unavailable, falling back to detached update process:", output)
-		} else {
-			logger.Infof("started panel update job via systemd-run unit %s", unitName)
-			launched = true
-			return runID, nil
-		}
-	}
-
-	cmd := exec.CommandContext(context.Background(), bash, "-lc", updateScript)
-	cmd.Env = append(os.Environ(),
-		"XUI_MAIN_FOLDER="+mainFolder,
-		"XUI_SERVICE="+serviceFolder,
-		"XUI_UPDATE_TAG="+updateTag,
-		runIDEnv,
-		statusFileEnv,
-	)
-	setDetachedProcess(cmd)
-	if err := cmd.Start(); err != nil {
-		_ = os.Remove(scriptPath)
-		return 0, fmt.Errorf("failed to start panel update job: %w", err)
-	}
-	if err := cmd.Process.Release(); err != nil {
-		logger.Warning("failed to release panel update process:", err)
-	}
-	logger.Infof("started panel update job with pid %d", cmd.Process.Pid)
-	recordUpdatePID(cmd.Process.Pid)
-	launched = true
-	return runID, nil
 }
 
 // updateProxyEnvVars forwards ambient proxy env vars to systemd-run's child,

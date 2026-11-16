@@ -1328,7 +1328,7 @@ func (s *SettingService) GetDevChannelEnable() (bool, error) {
 }
 
 func (s *SettingService) SetDevChannelEnable(value bool) error {
-	return s.setBool("devChannelEnable", value)
+	return config.ErrBuiltinUpdatesDisabled
 }
 
 // GetIpLimitEnable reports whether the IP-limit feature is available. Always

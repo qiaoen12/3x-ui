@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"io"
 	"net"
 	"net/http"
@@ -935,45 +936,7 @@ type NodeUpdateResult struct {
 // enabled, online nodes are eligible — an offline node can't be reached, so it
 // is reported as skipped rather than silently dropped.
 func (s *NodeService) UpdatePanels(ids []int, dev bool) ([]NodeUpdateResult, error) {
-	mgr := runtime.GetManager()
-	if mgr == nil {
-		return nil, fmt.Errorf("runtime manager unavailable")
-	}
-	results, panics := fanoutInboundResults(ids, nodeFanoutConcurrency, func(i int) NodeUpdateResult {
-		id := ids[i]
-		n, err := s.GetById(id)
-		if err != nil || n == nil {
-			return NodeUpdateResult{Id: id, OK: false, Error: "node not found"}
-		}
-		res := NodeUpdateResult{Id: id, Name: n.Name}
-		switch {
-		case !n.Enable:
-			res.Error = "node is disabled"
-		case n.Status != "online":
-			res.Error = "node is offline"
-		default:
-			remote, remoteErr := mgr.RemoteFor(n)
-			if remoteErr != nil {
-				res.Error = remoteErr.Error()
-				break
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			updErr := remote.UpdatePanel(ctx, dev)
-			cancel()
-			if updErr != nil {
-				res.Error = updErr.Error()
-			} else {
-				res.OK = true
-			}
-		}
-		return res
-	})
-	for i, panicErr := range panics {
-		if panicErr != nil {
-			results[i] = NodeUpdateResult{Id: ids[i], Error: panicErr.Error()}
-		}
-	}
-	return results, nil
+	return nil, config.ErrBuiltinUpdatesDisabled
 }
 
 func (s *NodeService) UpdateHeartbeat(id int, p HeartbeatPatch) error {

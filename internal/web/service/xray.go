@@ -176,6 +176,9 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Existing/restored templates must not reactivate Xray's native downloader.
+	// Keep the stored template intact and keep normal restarts/hot applies usable.
+	xrayConfig.Geodata = nil
 	xrayConfig.LogConfig = resolveXrayLogPaths(xrayConfig.LogConfig)
 	xrayConfig.API = ensureAPIServices(xrayConfig.API)
 	xrayConfig.Policy = ensureStatsPolicy(xrayConfig.Policy)

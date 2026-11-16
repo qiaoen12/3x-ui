@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/crypto/nodetoken"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -670,12 +671,7 @@ func (r *Remote) RestartXray(ctx context.Context) error {
 // launched; the new version surfaces on the next heartbeat. When dev is true the
 // node is moved to the rolling dev channel instead of the latest stable release.
 func (r *Remote) UpdatePanel(ctx context.Context, dev bool) error {
-	var body any
-	if dev {
-		body = url.Values{"dev": {"true"}}
-	}
-	_, err := r.do(ctx, http.MethodPost, "panel/api/server/updatePanel", body)
-	return err
+	return config.ErrBuiltinUpdatesDisabled
 }
 
 // WebCertFiles holds a node's own web TLS certificate and key file paths.

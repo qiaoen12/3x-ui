@@ -8,6 +8,28 @@
   "outbound_statistics": "unchanged",
   "historical_usage": "preserved",
   "raw_xray_samples": "unchanged",
-  "tests": "TestOpsPublicBilling|TestNodeQuota|TestNodeStaleExpiry|TestNodeRenew|TestNodeCounterReset|TestCentralReset|TestRestartXrayRespectsManualStop|TestDisableInvalidClients|TestNodeSelected",
-  "node_disable_restart_policy": "only_if_local_config_changed"
+  "tests": "TestOpsPublicBilling|TestNodeQuota|TestNodeStaleExpiry|TestNodeRenew|TestNodeCounterReset|TestCentralReset|TestRestartXrayRespectsManualStop|TestDisableInvalidClients|TestNodeSelected|TestOpsManagedUpdates",
+  "node_disable_restart_policy": "only_if_local_config_changed",
+  "test_packages": [
+    "./internal/web/service",
+    "./internal/web/job",
+    "./internal/web/service/panel",
+    "./internal/web/controller",
+    "./internal/web/runtime"
+  ],
+  "frontend_tests": [
+    "src/test/panel-update-modal.test.tsx",
+    "src/test/geodata-section.test.tsx",
+    "src/test/managed-updates.test.tsx"
+  ],
+  "managed_updates_disabled": true,
+  "disabled_operations": [
+    "panel_self_update",
+    "node_panel_update",
+    "xray_install",
+    "geo_download",
+    "native_geodata_auto_update",
+    "update_channel_change"
+  ],
+  "existing_geodata_policy": "omit_downloader_from_runtime_preserve_stored_template"
 }

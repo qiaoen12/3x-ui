@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/netsafe"
@@ -69,11 +70,11 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 
 	g.POST("/stopXrayService", a.stopXrayService)
 	g.POST("/restartXrayService", a.restartXrayService)
-	g.POST("/installXray/:version", a.installXray)
-	g.POST("/updatePanel", a.updatePanel)
-	g.POST("/setUpdateChannel", a.setUpdateChannel)
-	g.POST("/updateGeofile", a.updateGeofile)
-	g.POST("/updateGeofile/:fileName", a.updateGeofile)
+	g.POST("/installXray/:version", rejectBuiltinUpdate)
+	g.POST("/updatePanel", rejectBuiltinUpdate)
+	g.POST("/setUpdateChannel", rejectBuiltinUpdate)
+	g.POST("/updateGeofile", rejectBuiltinUpdate)
+	g.POST("/updateGeofile/:fileName", rejectBuiltinUpdate)
 	g.POST("/logs/:count", a.getLogs)
 	g.POST("/xraylogs/:count", a.getXrayLogs)
 	g.POST("/amneziawglogs/:count", a.getAmneziaWGLogs)
@@ -549,4 +550,10 @@ func (a *ServerController) setClientIps(c *gin.Context) {
 	}
 	err := (&service.InboundService{}).MergeInboundClientIps(ips)
 	jsonMsg(c, "Client IPs merged", err)
+}
+
+// rejectBuiltinUpdate refuses before parsing input, touching settings, downloading,
+// launching a process or restarting a service. It also protects node API callers.
+func rejectBuiltinUpdate(c *gin.Context) {
+	c.JSON(http.StatusForbidden, entity.Msg{Success: false, Msg: config.ErrBuiltinUpdatesDisabled.Error()})
 }
