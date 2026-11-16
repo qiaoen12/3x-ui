@@ -48,7 +48,7 @@ jobs:
 
       - name: Check the managed-update frontend
         working-directory: frontend
-        run: npm test -- --project components $(jq -r '.frontend_tests[]' ../ops/manifest.base.json)
+        run: npm test -- $(jq -r '.frontend_tests[]' ../ops/manifest.base.json)
 
       - name: Run the ops patch tests
         run: go test -p 4 $(jq -r '.test_packages[]' ops/manifest.base.json) -run "$(jq -r .tests ops/manifest.base.json)" -count=1

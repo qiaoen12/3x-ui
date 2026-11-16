@@ -20,7 +20,8 @@
   "frontend_tests": [
     "src/test/panel-update-modal.test.tsx",
     "src/test/geodata-section.test.tsx",
-    "src/test/managed-updates.test.tsx"
+    "src/test/managed-updates.test.tsx",
+    "src/test/openapi-runtime-contracts.test.ts"
   ],
   "managed_updates_disabled": true,
   "disabled_operations": [

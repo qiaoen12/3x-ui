@@ -562,7 +562,7 @@ export const sections: readonly Section[] = [
         method: 'GET',
         path: '/panel/api/server/getUpdateStatus',
         summary:
-          'Report the outcome of the most recently launched panel self-update (see POST updatePanel). Compare the returned runId against the one updatePanel returned to tell this run apart from a stale result.',
+          'Read the last saved panel update result. Built-in updates are disabled in this operations build.',
         responseSchema: 'PanelUpdateStatus',
       },
       {
@@ -645,69 +645,6 @@ export const sections: readonly Section[] = [
         summary:
           'Reload Xray with the current config. Typically required after structural inbound or routing changes.',
         errorResponse: '{\n  "success": false,\n  "msg": "Xray config is invalid: ..."\n}',
-      },
-      {
-        method: 'POST',
-        path: '/panel/api/server/installXray/:version',
-        summary:
-          'Download and install the specified Xray version. Pass "latest" for the newest release.',
-        params: [
-          {
-            name: 'version',
-            in: 'path',
-            type: 'string',
-            desc: 'Xray tag (e.g. v25.10.31) or "latest".',
-          },
-        ],
-      },
-      {
-        method: 'POST',
-        path: '/panel/api/server/updatePanel',
-        summary: 'Self-update the panel to the latest version. The server restarts on success.',
-        params: [
-          {
-            name: 'dev',
-            in: 'body (form)',
-            type: 'boolean',
-            desc: "Override this run's channel. Omit to use the panel's configured channel.",
-            optional: true,
-          },
-        ],
-        response: '{\n  "success": true,\n  "obj": {\n    "runId": "1735689600123456789"\n  }\n}',
-      },
-      {
-        method: 'POST',
-        path: '/panel/api/server/setUpdateChannel',
-        summary:
-          'Toggle the panel update channel between stable and the rolling per-commit dev release. Only effective on dev builds.',
-        params: [
-          {
-            name: 'dev',
-            in: 'body (form)',
-            type: 'boolean',
-            desc: 'true = dev channel, false = stable.',
-          },
-        ],
-        body: 'dev=true',
-      },
-      {
-        method: 'POST',
-        path: '/panel/api/server/updateGeofile',
-        summary:
-          'Refresh the default GeoIP / GeoSite data files. Use the /:fileName variant to update one file.',
-      },
-      {
-        method: 'POST',
-        path: '/panel/api/server/updateGeofile/:fileName',
-        summary: 'Refresh a single Geo file by filename (e.g. geoip.dat, geosite.dat).',
-        params: [
-          {
-            name: 'fileName',
-            in: 'path',
-            type: 'string',
-            desc: 'Filename of the data file to refresh.',
-          },
-        ],
       },
       {
         method: 'POST',
@@ -1766,15 +1703,6 @@ export const sections: readonly Section[] = [
         path: '/panel/api/nodes/probe/:id',
         summary: 'Probe an existing node, updating its cached health state.',
         params: [{ name: 'id', in: 'path', type: 'number', desc: 'Node ID.' }],
-      },
-      {
-        method: 'POST',
-        path: '/panel/api/nodes/updatePanel',
-        summary:
-          'Trigger the official panel self-updater on each given node (downloads the latest release and restarts). Only enabled, online nodes are updated; offline/disabled ones are reported as skipped. Set "dev": true to move the nodes to the rolling per-commit dev channel instead of the latest stable release. Returns a per-node result list.',
-        body: '{\n  "ids": [1, 2, 3],\n  "dev": false\n}',
-        response:
-          '{\n  "success": true,\n  "obj": [\n    { "id": 1, "name": "de-1", "ok": true },\n    { "id": 2, "name": "fr-1", "ok": false, "error": "node is offline" }\n  ]\n}',
       },
       {
         method: 'GET',

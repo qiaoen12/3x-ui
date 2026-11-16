@@ -1,3 +1,426 @@
+diff --git a/frontend/public/openapi.json b/frontend/public/openapi.json
+index b50cb368..da5c0495 100644
+--- a/frontend/public/openapi.json
++++ b/frontend/public/openapi.json
+@@ -6633,7 +6633,7 @@
+         "tags": [
+           "Server"
+         ],
+-        "summary": "Report the outcome of the most recently launched panel self-update (see POST updatePanel). Compare the returned runId against the one updatePanel returned to tell this run apart from a stale result.",
++        "summary": "Read the last saved panel update result. Built-in updates are disabled in this operations build.",
+         "operationId": "get_panel_api_server_getUpdateStatus",
+         "responses": {
+           "200": {
+@@ -7138,219 +7138,6 @@
+         }
+       }
+     },
+-    "/panel/api/server/installXray/{version}": {
+-      "post": {
+-        "tags": [
+-          "Server"
+-        ],
+-        "summary": "Download and install the specified Xray version. Pass \"latest\" for the newest release.",
+-        "operationId": "post_panel_api_server_installXray_version",
+-        "parameters": [
+-          {
+-            "name": "version",
+-            "in": "path",
+-            "required": true,
+-            "description": "Xray tag (e.g. v25.10.31) or \"latest\".",
+-            "schema": {
+-              "type": "string"
+-            }
+-          }
+-        ],
+-        "responses": {
+-          "200": {
+-            "description": "Successful response",
+-            "content": {
+-              "application/json": {
+-                "schema": {
+-                  "type": "object",
+-                  "properties": {
+-                    "success": {
+-                      "type": "boolean"
+-                    },
+-                    "msg": {
+-                      "type": "string"
+-                    },
+-                    "obj": {}
+-                  }
+-                }
+-              }
+-            }
+-          }
+-        }
+-      }
+-    },
+-    "/panel/api/server/updatePanel": {
+-      "post": {
+-        "tags": [
+-          "Server"
+-        ],
+-        "summary": "Self-update the panel to the latest version. The server restarts on success.",
+-        "operationId": "post_panel_api_server_updatePanel",
+-        "requestBody": {
+-          "required": false,
+-          "content": {
+-            "application/x-www-form-urlencoded": {
+-              "schema": {
+-                "type": "object",
+-                "properties": {
+-                  "dev": {
+-                    "type": "boolean",
+-                    "description": "Override this run's channel. Omit to use the panel's configured channel."
+-                  }
+-                }
+-              }
+-            }
+-          }
+-        },
+-        "responses": {
+-          "200": {
+-            "description": "Successful response",
+-            "content": {
+-              "application/json": {
+-                "schema": {
+-                  "type": "object",
+-                  "properties": {
+-                    "success": {
+-                      "type": "boolean"
+-                    },
+-                    "msg": {
+-                      "type": "string"
+-                    },
+-                    "obj": {}
+-                  }
+-                },
+-                "example": {
+-                  "success": true,
+-                  "obj": {
+-                    "runId": "1735689600123456789"
+-                  }
+-                }
+-              }
+-            }
+-          }
+-        }
+-      }
+-    },
+-    "/panel/api/server/setUpdateChannel": {
+-      "post": {
+-        "tags": [
+-          "Server"
+-        ],
+-        "summary": "Toggle the panel update channel between stable and the rolling per-commit dev release. Only effective on dev builds.",
+-        "operationId": "post_panel_api_server_setUpdateChannel",
+-        "requestBody": {
+-          "required": true,
+-          "content": {
+-            "application/x-www-form-urlencoded": {
+-              "schema": {
+-                "type": "object",
+-                "properties": {
+-                  "dev": {
+-                    "type": "boolean",
+-                    "description": "true = dev channel, false = stable."
+-                  }
+-                },
+-                "required": [
+-                  "dev"
+-                ]
+-              }
+-            }
+-          }
+-        },
+-        "responses": {
+-          "200": {
+-            "description": "Successful response",
+-            "content": {
+-              "application/json": {
+-                "schema": {
+-                  "type": "object",
+-                  "properties": {
+-                    "success": {
+-                      "type": "boolean"
+-                    },
+-                    "msg": {
+-                      "type": "string"
+-                    },
+-                    "obj": {}
+-                  }
+-                }
+-              }
+-            }
+-          }
+-        }
+-      }
+-    },
+-    "/panel/api/server/updateGeofile": {
+-      "post": {
+-        "tags": [
+-          "Server"
+-        ],
+-        "summary": "Refresh the default GeoIP / GeoSite data files. Use the /:fileName variant to update one file.",
+-        "operationId": "post_panel_api_server_updateGeofile",
+-        "responses": {
+-          "200": {
+-            "description": "Successful response",
+-            "content": {
+-              "application/json": {
+-                "schema": {
+-                  "type": "object",
+-                  "properties": {
+-                    "success": {
+-                      "type": "boolean"
+-                    },
+-                    "msg": {
+-                      "type": "string"
+-                    },
+-                    "obj": {}
+-                  }
+-                }
+-              }
+-            }
+-          }
+-        }
+-      }
+-    },
+-    "/panel/api/server/updateGeofile/{fileName}": {
+-      "post": {
+-        "tags": [
+-          "Server"
+-        ],
+-        "summary": "Refresh a single Geo file by filename (e.g. geoip.dat, geosite.dat).",
+-        "operationId": "post_panel_api_server_updateGeofile_fileName",
+-        "parameters": [
+-          {
+-            "name": "fileName",
+-            "in": "path",
+-            "required": true,
+-            "description": "Filename of the data file to refresh.",
+-            "schema": {
+-              "type": "string"
+-            }
+-          }
+-        ],
+-        "responses": {
+-          "200": {
+-            "description": "Successful response",
+-            "content": {
+-              "application/json": {
+-                "schema": {
+-                  "type": "object",
+-                  "properties": {
+-                    "success": {
+-                      "type": "boolean"
+-                    },
+-                    "msg": {
+-                      "type": "string"
+-                    },
+-                    "obj": {}
+-                  }
+-                }
+-              }
+-            }
+-          }
+-        }
+-      }
+-    },
+     "/panel/api/server/logs/{count}": {
+       "post": {
+         "tags": [
+@@ -11719,70 +11506,6 @@
+         }
+       }
+     },
+-    "/panel/api/nodes/updatePanel": {
+-      "post": {
+-        "tags": [
+-          "Nodes"
+-        ],
+-        "summary": "Trigger the official panel self-updater on each given node (downloads the latest release and restarts). Only enabled, online nodes are updated; offline/disabled ones are reported as skipped. Set \"dev\": true to move the nodes to the rolling per-commit dev channel instead of the latest stable release. Returns a per-node result list.",
+-        "operationId": "post_panel_api_nodes_updatePanel",
+-        "requestBody": {
+-          "required": true,
+-          "content": {
+-            "application/json": {
+-              "schema": {
+-                "type": "object"
+-              },
+-              "example": {
+-                "ids": [
+-                  1,
+-                  2,
+-                  3
+-                ],
+-                "dev": false
+-              }
+-            }
+-          }
+-        },
+-        "responses": {
+-          "200": {
+-            "description": "Successful response",
+-            "content": {
+-              "application/json": {
+-                "schema": {
+-                  "type": "object",
+-                  "properties": {
+-                    "success": {
+-                      "type": "boolean"
+-                    },
+-                    "msg": {
+-                      "type": "string"
+-                    },
+-                    "obj": {}
+-                  }
+-                },
+-                "example": {
+-                  "success": true,
+-                  "obj": [
+-                    {
+-                      "id": 1,
+-                      "name": "de-1",
+-                      "ok": true
+-                    },
+-                    {
+-                      "id": 2,
+-                      "name": "fr-1",
+-                      "ok": false,
+-                      "error": "node is offline"
+-                    }
+-                  ]
+-                }
+-              }
+-            }
+-          }
+-        }
+-      }
+-    },
+     "/panel/api/nodes/history/{id}/{metric}/{bucket}": {
+       "get": {
+         "tags": [
+diff --git a/frontend/src/pages/api-docs/ApiDocsPage.tsx b/frontend/src/pages/api-docs/ApiDocsPage.tsx
+index 38e26e7d..0e4ca1a8 100644
+--- a/frontend/src/pages/api-docs/ApiDocsPage.tsx
++++ b/frontend/src/pages/api-docs/ApiDocsPage.tsx
+@@ -8,6 +8,7 @@ import { useTheme } from '@/hooks/useTheme';
+ import AppSidebar from '@/layouts/AppSidebar';
+ import { EXAMPLES } from '@/generated/examples';
+ import { buildWebSocketEvents } from './websocket-events';
++import ManagedUpdatesNotice from '../index/ManagedUpdatesNotice';
+ import './ApiDocsPage.css';
+ 
+ const basePath = window.X_UI_BASE_PATH || '';
+@@ -87,6 +88,7 @@ export default function ApiDocsPage() {
+ 
+         <Layout className="content-shell">
+           <Layout.Content className="content-area">
++            <ManagedUpdatesNotice />
+             <Tabs
+               items={[
+                 {
+diff --git a/frontend/src/pages/api-docs/endpoints.ts b/frontend/src/pages/api-docs/endpoints.ts
+index a0b343a5..ef753423 100644
+--- a/frontend/src/pages/api-docs/endpoints.ts
++++ b/frontend/src/pages/api-docs/endpoints.ts
+@@ -562,7 +562,7 @@ export const sections: readonly Section[] = [
+         method: 'GET',
+         path: '/panel/api/server/getUpdateStatus',
+         summary:
+-          'Report the outcome of the most recently launched panel self-update (see POST updatePanel). Compare the returned runId against the one updatePanel returned to tell this run apart from a stale result.',
++          'Read the last saved panel update result. Built-in updates are disabled in this operations build.',
+         responseSchema: 'PanelUpdateStatus',
+       },
+       {
+@@ -646,69 +646,6 @@ export const sections: readonly Section[] = [
+           'Reload Xray with the current config. Typically required after structural inbound or routing changes.',
+         errorResponse: '{\n  "success": false,\n  "msg": "Xray config is invalid: ..."\n}',
+       },
+-      {
+-        method: 'POST',
+-        path: '/panel/api/server/installXray/:version',
+-        summary:
+-          'Download and install the specified Xray version. Pass "latest" for the newest release.',
+-        params: [
+-          {
+-            name: 'version',
+-            in: 'path',
+-            type: 'string',
+-            desc: 'Xray tag (e.g. v25.10.31) or "latest".',
+-          },
+-        ],
+-      },
+-      {
+-        method: 'POST',
+-        path: '/panel/api/server/updatePanel',
+-        summary: 'Self-update the panel to the latest version. The server restarts on success.',
+-        params: [
+-          {
+-            name: 'dev',
+-            in: 'body (form)',
+-            type: 'boolean',
+-            desc: "Override this run's channel. Omit to use the panel's configured channel.",
+-            optional: true,
+-          },
+-        ],
+-        response: '{\n  "success": true,\n  "obj": {\n    "runId": "1735689600123456789"\n  }\n}',
+-      },
+-      {
+-        method: 'POST',
+-        path: '/panel/api/server/setUpdateChannel',
+-        summary:
+-          'Toggle the panel update channel between stable and the rolling per-commit dev release. Only effective on dev builds.',
+-        params: [
+-          {
+-            name: 'dev',
+-            in: 'body (form)',
+-            type: 'boolean',
+-            desc: 'true = dev channel, false = stable.',
+-          },
+-        ],
+-        body: 'dev=true',
+-      },
+-      {
+-        method: 'POST',
+-        path: '/panel/api/server/updateGeofile',
+-        summary:
+-          'Refresh the default GeoIP / GeoSite data files. Use the /:fileName variant to update one file.',
+-      },
+-      {
+-        method: 'POST',
+-        path: '/panel/api/server/updateGeofile/:fileName',
+-        summary: 'Refresh a single Geo file by filename (e.g. geoip.dat, geosite.dat).',
+-        params: [
+-          {
+-            name: 'fileName',
+-            in: 'path',
+-            type: 'string',
+-            desc: 'Filename of the data file to refresh.',
+-          },
+-        ],
+-      },
+       {
+         method: 'POST',
+         path: '/panel/api/server/logs/:count',
+@@ -1767,15 +1704,6 @@ export const sections: readonly Section[] = [
+         summary: 'Probe an existing node, updating its cached health state.',
+         params: [{ name: 'id', in: 'path', type: 'number', desc: 'Node ID.' }],
+       },
+-      {
+-        method: 'POST',
+-        path: '/panel/api/nodes/updatePanel',
+-        summary:
+-          'Trigger the official panel self-updater on each given node (downloads the latest release and restarts). Only enabled, online nodes are updated; offline/disabled ones are reported as skipped. Set "dev": true to move the nodes to the rolling per-commit dev channel instead of the latest stable release. Returns a per-node result list.',
+-        body: '{\n  "ids": [1, 2, 3],\n  "dev": false\n}',
+-        response:
+-          '{\n  "success": true,\n  "obj": [\n    { "id": 1, "name": "de-1", "ok": true },\n    { "id": 2, "name": "fr-1", "ok": false, "error": "node is offline" }\n  ]\n}',
+-      },
+       {
+         method: 'GET',
+         path: '/panel/api/nodes/history/:id/:metric/:bucket',
 diff --git a/frontend/src/pages/index/GeodataSection.tsx b/frontend/src/pages/index/GeodataSection.tsx
 index cfe2237d..73a843dd 100644
 --- a/frontend/src/pages/index/GeodataSection.tsx
@@ -940,6 +1363,32 @@ index 00000000..b2d4ae2f
 +    expect(update).not.toHaveBeenCalled();
 +  });
 +});
+diff --git a/frontend/src/test/openapi-runtime-contracts.test.ts b/frontend/src/test/openapi-runtime-contracts.test.ts
+index ac2c10d0..984dde53 100644
+--- a/frontend/src/test/openapi-runtime-contracts.test.ts
++++ b/frontend/src/test/openapi-runtime-contracts.test.ts
+@@ -60,6 +60,21 @@ function responseObjectSchema(path: string, method = 'get'): OpenApiSchema {
+ }
+ 
+ describe('generated OpenAPI runtime contracts', () => {
++  it('omits disabled update operations from the interactive documentation', () => {
++    for (const path of [
++      '/panel/api/server/installXray/{version}',
++      '/panel/api/server/updatePanel',
++      '/panel/api/server/setUpdateChannel',
++      '/panel/api/server/updateGeofile',
++      '/panel/api/server/updateGeofile/{fileName}',
++      '/panel/api/nodes/updatePanel',
++    ]) {
++      expect(spec.paths[path]).toBeUndefined();
++    }
++    expect(operation('/panel/api/server/getUpdateStatus', 'get')).toBeDefined();
++    expect(operation('/panel/api/server/restartXrayService', 'post')).toBeDefined();
++  });
++
+   it('exports only valid OpenAPI paths and HTTP methods', () => {
+     const validMethods = new Set([
+       'get',
 diff --git a/frontend/src/test/panel-update-modal.test.tsx b/frontend/src/test/panel-update-modal.test.tsx
 index a94d30a5..907bb17c 100644
 --- a/frontend/src/test/panel-update-modal.test.tsx

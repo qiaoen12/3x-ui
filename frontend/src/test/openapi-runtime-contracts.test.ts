@@ -60,6 +60,21 @@ function responseObjectSchema(path: string, method = 'get'): OpenApiSchema {
 }
 
 describe('generated OpenAPI runtime contracts', () => {
+  it('omits disabled update operations from the interactive documentation', () => {
+    for (const path of [
+      '/panel/api/server/installXray/{version}',
+      '/panel/api/server/updatePanel',
+      '/panel/api/server/setUpdateChannel',
+      '/panel/api/server/updateGeofile',
+      '/panel/api/server/updateGeofile/{fileName}',
+      '/panel/api/nodes/updatePanel',
+    ]) {
+      expect(spec.paths[path]).toBeUndefined();
+    }
+    expect(operation('/panel/api/server/getUpdateStatus', 'get')).toBeDefined();
+    expect(operation('/panel/api/server/restartXrayService', 'post')).toBeDefined();
+  });
+
   it('exports only valid OpenAPI paths and HTTP methods', () => {
     const validMethods = new Set([
       'get',
